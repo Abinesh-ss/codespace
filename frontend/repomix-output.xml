@@ -1,0 +1,2032 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+app/
+  api/
+    navigation.ts
+  dashboard/
+    page.tsx
+  editor/
+    page.tsx
+  login/
+    page.tsx
+  navigate/
+    page.tsx
+  pricing/
+    page.tsx
+  qr/
+    page.tsx
+  signup/
+    page.tsx
+  upload/
+    page.tsx
+  globals.css
+  layout.tsx
+  page.tsx
+src/
+  components/
+    Button.tsx
+    Card.tsx
+    Layout.tsx
+    ProgressBar.tsx
+    Sidebar.tsx
+  SidebarLayout.tsx
+.env.example
+.env.local
+middleware.ts
+next-env.d.ts
+next.config.js
+package.json
+postcss.config.js
+replace.js
+tailwind.config.js
+todo.md
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/api/navigation.ts">
+// services/navigation.ts
+export async function getShortestPath(payload: {
+  floorId: string;
+  startNodeId: string;
+  endNodeId: string;
+}) {
+  const subscriptionStatus = localStorage.getItem("subscriptionStatus");
+  const region = localStorage.getItem("region");
+  const email = localStorage.getItem("userEmail") || "";
+  const domain = email.split("@")[1] || "";
+
+  if (region === "TAMIL_NADU" && domain.endsWith("gov.in")) {
+    // TN Govt hospitals allowed
+  } else if (!subscriptionStatus || subscriptionStatus === "TRIAL") {
+    const trialEnds = localStorage.getItem("trialEndsAt");
+    if (trialEnds && new Date(trialEnds) < new Date()) {
+      throw new Error("Subscription expired. Please upgrade.");
+    }
+  }
+
+  const res = await fetch("/api/navigation/shortest-path", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) throw new Error("Navigation failed");
+  return res.json();
+}
+</file>
+
+<file path="app/dashboard/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { BarChart3, Upload, Navigation, TrendingUp } from "lucide-react";
+
+interface DashboardStats {
+  totalNavigations: number;
+  todayNavigations: number;
+  dashboardViews: number;
+  reportDownloads: number;
+}
+
+export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("/api/analytics/dashboard", {
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          window.location.href = "/login";
+          return;
+        }
+
+        const data = await res.json();
+        setStats(data);
+
+        // 🔥 Track dashboard view
+        await fetch("/api/analytics/track", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventType: "DASHBOARD_VIEW" }),
+        });
+      } catch {
+        window.location.href = "/login";
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <p className="text-gray-600">
+          Real-time hospital navigation analytics
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard
+          title="Total Navigations"
+          value={stats?.totalNavigations ?? 0}
+          icon={<Navigation />}
+        />
+        <StatCard
+          title="Today Navigations"
+          value={stats?.todayNavigations ?? 0}
+          icon={<TrendingUp />}
+        />
+        <StatCard
+          title="Dashboard Views"
+          value={stats?.dashboardViews ?? 0}
+          icon={<BarChart3 />}
+        />
+        <StatCard
+          title="Reports Downloaded"
+          value={stats?.reportDownloads ?? 0}
+          icon={<Upload />}
+        />
+      </div>
+
+      <div className="bg-white rounded-xl shadow p-6">
+        <h3 className="text-lg font-semibold mb-2">System Status</h3>
+        <p className="text-gray-600">
+          All navigation and analytics services are operational.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-xl shadow p-5 flex items-center gap-4">
+      <div className="p-3 bg-indigo-100 rounded-lg text-indigo-600">
+        {icon}
+      </div>
+      <div>
+        <p className="text-sm text-gray-500">{title}</p>
+        <p className="text-2xl font-bold">{value}</p>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/editor/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { Save } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+type POI = {
+  id: string;
+  x: number;
+  y: number;
+};
+
+export default function EditorPage() {
+  const router = useRouter();
+  const [pois, setPois] = useState<POI[]>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/maps/latest", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setPois(d.graphData.nodes));
+  }, []);
+
+  const save = async () => {
+    await fetch("/api/maps/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nodes: pois }),
+      credentials: "include",
+    });
+
+    router.push("/qr");
+  };
+
+  return (
+    <div className="min-h-screen p-6 bg-gray-50 space-y-6">
+      <h1 className="text-3xl font-bold">Adjust Navigation Points</h1>
+
+      <div className="relative bg-white border rounded h-[600px]">
+        {pois.map((p) => (
+          <div
+            key={p.id}
+            onMouseDown={() => setDragId(p.id)}
+            onMouseUp={() => setDragId(null)}
+            onMouseMove={(e) => {
+              if (dragId === p.id) {
+                setPois(prev =>
+                  prev.map(x =>
+                    x.id === p.id ? { ...x, x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY } : x
+                  )
+                );
+              }
+            }}
+            style={{ left: p.x, top: p.y }}
+            className="absolute w-4 h-4 bg-indigo-600 rounded-full cursor-move"
+          />
+        ))}
+      </div>
+
+      <button onClick={save} className="px-6 py-3 bg-indigo-600 text-white rounded-lg flex gap-2">
+        <Save /> Save & Generate QR
+      </button>
+    </div>
+  );
+}
+</file>
+
+<file path="app/login/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Shield, ArrowRight, AlertCircle } from "lucide-react";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    if (!email || !password) {
+      setError("Email and password are required");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Login failed");
+        setLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+
+      localStorage.setItem("auth", "true");
+      localStorage.setItem("userEmail", email);
+      localStorage.setItem("subscriptionStatus", data.subscriptionStatus);
+      localStorage.setItem("region", data.region);
+
+      router.push("/dashboard");
+    } catch (err: any) {
+      setError(err.message || "Unexpected error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-indigo-600 rounded-xl mx-auto flex items-center justify-center mb-4">
+            <Shield className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold">Vazhikatti</h1>
+          <p className="text-gray-600 mt-1">Sign in to your dashboard</p>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <span className="text-sm text-red-700">{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleLogin} className="space-y-5">
+          <input
+            type="email"
+            placeholder="Email address"
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-600"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-600"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-3 text-gray-400"
+            >
+              {showPassword ? <EyeOff /> : <Eye />}
+            </button>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 flex items-center justify-center"
+          >
+            {loading ? "Signing in..." : <>Sign In <ArrowRight className="ml-2 w-4 h-4" /></>}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Don’t have an account?{" "}
+          <Link href="/signup" className="text-indigo-600 font-medium">
+            Sign Up First
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/navigate/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import Layout from "@/components/Layout";
+import {
+  Navigation,
+  MapPin,
+  Clock,
+  ArrowRight,
+  Search,
+  Mic,
+  ChevronsUpDown,
+  AlertCircle,
+  CheckCircle,
+  Users,
+  Accessibility,
+  MoveVertical,
+} from "lucide-react";
+
+export default function Navigate() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentLocation, setCurrentLocation] = useState<any>(null);
+  const [destination, setDestination] = useState("");
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<any>(null);
+  const [stepIndex, setStepIndex] = useState(0);
+
+  useEffect(() => {
+    const auth = localStorage.getItem("isAuthenticated");
+    if (auth !== "true") {
+      window.location.href = "/login";
+      return;
+    }
+    setIsAuthenticated(true);
+
+    setCurrentLocation({
+      name: "Main Entrance",
+      floor: "Level 1",
+      coordinates: { x: 100, y: 100 },
+    });
+  }, []);
+
+  const destinations = [
+    { id: 1, name: "Emergency Room", floor: "Level 1", category: "Medical", estimatedTime: 3, distance: 85 },
+    { id: 2, name: "Radiology Department", floor: "Level 2", category: "Medical", estimatedTime: 5, distance: 120 },
+    { id: 3, name: "Pharmacy", floor: "Level 1", category: "Service", estimatedTime: 2, distance: 45 },
+    { id: 4, name: "Cafeteria", floor: "Level 3", category: "Service", estimatedTime: 4, distance: 95 },
+  ];
+
+  const navigationSteps = [
+    {
+      instruction: "Head straight towards the main reception",
+      direction: "straight",
+      distance: 15,
+      icon: <ArrowRight className="w-5 h-5" />,
+    },
+    {
+      instruction: "Turn left at the information desk",
+      direction: "left",
+      distance: 10,
+      icon: <ArrowRight className="w-5 h-5 rotate-90" />,
+    },
+    {
+      instruction: "Continue straight down the corridor",
+      direction: "straight",
+      distance: 25,
+      icon: <ArrowRight className="w-5 h-5" />,
+    },
+    {
+      instruction: "Take the elevator to Level 2",
+      direction: "up",
+      distance: 0,
+      icon: <MoveVertical className="w-5 h-5" />,
+    },
+    {
+      instruction: "Turn right after exiting the elevator",
+      direction: "right",
+      distance: 5,
+      icon: <ArrowRight className="w-5 h-5 -rotate-90" />,
+    },
+    {
+      instruction: "Radiology Department will be on your left",
+      direction: "left",
+      distance: 10,
+      icon: <ArrowRight className="w-5 h-5 rotate-90" />,
+    },
+  ];
+
+  const quickDestinations = [
+    { name: "Emergency Room", icon: <AlertCircle className="w-4 h-4" />, color: "bg-red-500" },
+    { name: "Restroom", icon: <Users className="w-4 h-4" />, color: "bg-blue-500" },
+    { name: "Elevator", icon: <MoveVertical className="w-4 h-4" />, color: "bg-green-500" },
+    { name: "Accessible Route", icon: <Accessibility className="w-4 h-4" />, color: "bg-purple-500" },
+  ];
+
+  const startNavigation = (dest: string) => {
+    setDestination(dest);
+    setIsNavigating(true);
+    setStepIndex(0);
+    setSelectedRoute({
+      destination: dest,
+      totalTime: 5,
+      totalDistance: 85,
+      steps: navigationSteps,
+    });
+  };
+
+  const nextStep = () => {
+    if (stepIndex < navigationSteps.length - 1) {
+      setStepIndex(stepIndex + 1);
+    } else {
+      setIsNavigating(false);
+      setDestination("");
+      setSelectedRoute(null);
+      setStepIndex(0);
+    }
+  };
+
+  const prevStep = () => {
+    if (stepIndex > 0) setStepIndex(stepIndex - 1);
+  };
+
+  if (!isAuthenticated) return <div>Loading...</div>;
+
+  return (
+    <Layout showSidebar>
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Live Navigation</h1>
+            <p className="text-gray-600 mt-1">Real-time indoor guidance</p>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center px-3 py-2 bg-green-100 text-green-800 rounded-lg">
+              <CheckCircle className="w-4 h-4 mr-2" />
+              GPS Active
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main */}
+          <div className="lg:col-span-2 space-y-6">
+            {!isNavigating ? (
+              <div className="bg-white rounded-xl border p-6">
+                <h3 className="text-lg font-semibold mb-4">Where would you like to go?</h3>
+
+                <div className="relative mb-6">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    className="w-full pl-10 pr-12 py-3 border rounded-lg"
+                    placeholder="Search destination..."
+                  />
+                  <Mic className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  {quickDestinations.map((d, i) => (
+                    <button
+                      key={i}
+                      onClick={() => startNavigation(d.name)}
+                      className={`p-3 rounded-lg text-white flex items-center justify-center gap-2 ${d.color}`}
+                    >
+                      {d.icon}
+                      <span className="text-sm">{d.name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  {destinations.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => startNavigation(d.name)}
+                      className="w-full p-4 bg-gray-50 rounded-lg hover:bg-gray-100 text-left"
+                    >
+                      <div className="flex justify-between">
+                        <div className="flex items-center gap-3">
+                          <MapPin className="w-5 h-5 text-indigo-600" />
+                          <div>
+                            <div className="font-medium">{d.name}</div>
+                            <div className="text-sm text-gray-500">{d.floor}</div>
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {d.estimatedTime} min • {d.distance}m
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border p-6">
+                <h3 className="text-lg font-semibold mb-4">
+                  Navigating to <span className="text-indigo-600">{selectedRoute.destination}</span>
+                </h3>
+
+                <div className="bg-indigo-50 rounded-xl p-6 mb-6 flex items-center gap-4">
+                  <div className="p-3 bg-indigo-600 text-white rounded-full">
+                    {navigationSteps[stepIndex].icon}
+                  </div>
+                  <div>
+                    <div className="font-medium">
+                      {navigationSteps[stepIndex].instruction}
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {navigationSteps[stepIndex].distance > 0 &&
+                        `${navigationSteps[stepIndex].distance} meters`}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between">
+                  <button
+                    onClick={prevStep}
+                    disabled={stepIndex === 0}
+                    className="px-4 py-2 border rounded-lg disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={nextStep}
+                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2"
+                  >
+                    {stepIndex === navigationSteps.length - 1 ? "Complete" : "Next"}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl border p-6">
+              <h3 className="font-semibold mb-4">Current Location</h3>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                <div>
+                  <div className="font-medium">{currentLocation?.name}</div>
+                  <div className="text-sm text-gray-500">{currentLocation?.floor}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+              <h3 className="font-semibold text-red-700 mb-2 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                Emergency
+              </h3>
+              <p className="text-sm text-red-600">Nearest exit: 25m ahead</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
+</file>
+
+<file path="app/pricing/page.tsx">
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  Star,
+  ArrowRight,
+  Zap,
+  Shield,
+  Headphones,
+  Users,
+} from "lucide-react";
+
+export default function Pricing() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const plans = [
+    {
+      name: "Starter",
+      description: "Perfect for small facilities testing indoor navigation",
+      price: "$99",
+      period: "per month",
+      icon: <Zap className="w-6 h-6" aria-label="Zap Icon" />,
+      features: [
+        "Up to 5 floor plans",
+        "Basic navigation analytics",
+        "Mobile app access",
+        "Email support",
+        "1 user account",
+        "Standard API access",
+      ],
+      cta: "Start Free Trial",
+      popular: false,
+      trial: "14-day free trial",
+      href: "/login", // replace with real signup
+    },
+    {
+      name: "Professional",
+      description: "Ideal for hospitals and large facilities",
+      price: "$299",
+      period: "per month",
+      icon: <Shield className="w-6 h-6" aria-label="Shield Icon" />,
+      features: [
+        "Up to 50 floor plans",
+        "Advanced analytics dashboard",
+        "Real-time navigation",
+        "Priority email & phone support",
+        "10 user accounts",
+        "Advanced API with webhooks",
+        "Custom branding options",
+        "Monthly performance reports",
+      ],
+      cta: "Start Free Trial",
+      popular: true,
+      trial: "30-day free trial",
+      href: "/login", // replace with real signup
+    },
+    {
+      name: "Enterprise",
+      description: "Complete solution for healthcare systems and campuses",
+      price: "Custom",
+      period: "contact for pricing",
+      icon: <Users className="w-6 h-6" aria-label="Users Icon" />,
+      features: [
+        "Unlimited floor plans",
+        "Enterprise analytics suite",
+        "AI-powered route optimization",
+        "Dedicated account manager",
+        "Unlimited user accounts",
+        "Full API & SDK access",
+        "White-label solutions",
+        "On-premise deployment option",
+        "Custom integrations",
+        "SLA guarantees",
+      ],
+      cta: "Contact Sales",
+      popular: false,
+      trial: "Custom pilot program",
+      href: "/login", // replace with contact page
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Navigation */}
+      <nav className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <Link href="/" className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold">VZ</span>
+              </div>
+              <span className="text-xl font-bold text-gray-900">Vazhikatti</span>
+            </Link>
+
+            {/* Desktop Menu */}
+            <div className="hidden md:flex items-center space-x-8">
+              <Link href="/" className="text-gray-600 hover:text-indigo-600 transition">Home</Link>
+              <Link href="/pricing" className="text-indigo-600 font-medium">Pricing</Link>
+              <Link href="/login" className="text-gray-600 hover:text-indigo-600 transition">Sign In</Link>
+            </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              className="md:hidden text-gray-600 hover:text-indigo-600"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle menu"
+            >
+              ☰
+            </button>
+          </div>
+
+          {/* Mobile Menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden mt-2 space-y-2 pb-4">
+              <Link href="/" className="block text-gray-600 hover:text-indigo-600 transition">Home</Link>
+              <Link href="/pricing" className="block text-indigo-600 font-medium">Pricing</Link>
+              <Link href="/login" className="block text-gray-600 hover:text-indigo-600 transition">Sign In</Link>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-white to-gray-50">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 mb-6">
+            <CheckCircle2 className="w-4 h-4 mr-2" />
+            No credit card required for trial
+          </div>
+          <h1 className="text-5xl font-bold text-gray-900 mb-6">Simple, Transparent Pricing</h1>
+          <p className="text-xl text-gray-600 mb-8">
+            Choose the perfect plan for your facility. Start with a free trial and upgrade as you grow.
+          </p>
+          <div className="flex items-center justify-center space-x-4 text-sm text-gray-500 flex-wrap gap-2">
+            <div className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1 text-green-500" /> 14-day free trials</div>
+            <div className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1 text-green-500" /> Cancel anytime</div>
+            <div className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1 text-green-500" /> No setup fees</div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing Cards */}
+      <section className="py-16 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {plans.map((plan, index) => (
+              <div
+                key={index}
+                className={`relative bg-white rounded-2xl shadow-lg overflow-hidden transition-transform hover:scale-105 ${
+                  plan.popular ? 'ring-2 ring-indigo-600' : ''
+                }`}
+              >
+                {plan.popular && (
+                  <div className="absolute top-0 right-0 bg-indigo-600 text-white px-3 py-1 text-sm font-medium rounded-bl-lg">
+                    Most Popular
+                  </div>
+                )}
+                
+                <div className="p-8">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-2xl font-bold text-gray-900">{plan.name}</h3>
+                      <p className="text-gray-600 mt-1">{plan.description}</p>
+                    </div>
+                    <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+                      {plan.icon}
+                    </div>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-baseline">
+                      <span className="text-4xl font-bold text-gray-900">{plan.price}</span>
+                      <span className="text-gray-600 ml-2">{plan.period}</span>
+                    </div>
+                    {plan.trial && (
+                      <p className="text-sm text-green-600 font-medium mt-2">{plan.trial}</p>
+                    )}
+                  </div>
+
+                  <ul className="space-y-3 mb-8">
+                    {plan.features.map((feature, featureIndex) => (
+                      <li key={featureIndex} className="flex items-start">
+                        <CheckCircle2 className="w-5 h-5 text-green-500 mr-3 flex-shrink-0 mt-0.5" />
+                        <span className="text-gray-700">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link
+                    href={plan.href}
+                    className={`w-full py-3 px-6 rounded-lg font-medium transition flex items-center justify-center ${
+                      plan.popular
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                    }`}
+                  >
+                    {plan.cta}
+                    <ArrowRight className="ml-2 w-4 h-4" />
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ Section */}
+      <section className="py-16 px-4 sm:px-6 lg:px-8 bg-white">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">Frequently Asked Questions</h2>
+          <div className="space-y-8">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3">How does the free trial work?</h3>
+              <p className="text-gray-600">
+                Start with full access to all features in your chosen plan. No credit card required. 
+                After your trial ends, you can upgrade to continue using Vazhikatti.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3">Can I change plans anytime?</h3>
+              <p className="text-gray-600">
+                Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately, 
+                and we'll prorate any billing adjustments.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3">What payment methods do you accept?</h3>
+              <p className="text-gray-600">
+                We accept all major credit cards, PayPal, and ACH transfers for enterprise accounts. 
+                Annual billing comes with a 20% discount.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3">Is my data secure?</h3>
+              <p className="text-gray-600">
+                Absolutely. We use industry-standard encryption, comply with HIPAA regulations, 
+                and conduct regular security audits. Your data is always protected.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-16 bg-indigo-600 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl font-bold text-white mb-4">
+            Ready to Transform Your Facility Navigation?
+          </h2>
+          <p className="text-xl text-indigo-200 mb-8">
+            Join hundreds of healthcare facilities using Vazhikatti to deliver exceptional wayfinding experiences.
+          </p>
+          <Link
+            href="/login"
+            className="inline-flex items-center px-8 py-4 bg-white text-indigo-600 rounded-lg hover:bg-gray-100 transition text-lg font-medium"
+          >
+            Start Your Free Trial
+            <ArrowRight className="ml-2 w-5 h-5" />
+          </Link>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-gray-300 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto text-center">
+          <div className="flex items-center justify-center space-x-2 mb-4">
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold">VZ</span>
+            </div>
+            <span className="text-xl font-bold text-white">Vazhikatti</span>
+          </div>
+          <p className="text-gray-400">
+            © {new Date().getFullYear()} Vazhikatti. All rights reserved.
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+</file>
+
+<file path="app/qr/page.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { QRCodeCanvas } from "qrcode.react";
+import { Download } from "lucide-react";
+
+export default function QRPage() {
+  const [pois, setPois] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/maps/latest", { credentials: "include" })
+      .then(res => res.json())
+      .then(data => setPois(data.graphData.nodes));
+  }, []);
+
+  return (
+    <div className="min-h-screen p-6 bg-gray-50">
+      <h1 className="text-3xl font-bold mb-6">QR Codes</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {pois.map((p, i) => {
+          const url = `https://yourdomain.com/nav/${p.id}`;
+          return (
+            <div key={i} className="bg-white p-4 border rounded text-center">
+              <QRCodeCanvas value={url} size={200} />
+              <p className="mt-2 text-sm">{url}</p>
+              <a
+                download={`poi-${p.id}.png`}
+                href={document.querySelector("canvas")?.toDataURL()}
+                className="inline-flex gap-2 mt-3 text-indigo-600"
+              >
+                <Download /> Download
+              </a>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/signup/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Shield, ArrowRight, AlertCircle } from "lucide-react";
+
+export default function SignupPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    if (!email || !password) {
+      setError("Email and password are required");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Signup failed");
+        return;
+      }
+
+      // Redirect to login after successful signup
+      router.push("/login");
+    } catch (err: any) {
+      setError(err.message || "Unexpected error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-indigo-600 rounded-xl mx-auto flex items-center justify-center mb-4">
+            <Shield className="w-6 h-6 text-white" />
+          </div>
+          <h1 className="text-2xl font-bold">Create Account</h1>
+          <p className="text-gray-600 mt-1">Start your free trial</p>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <span className="text-sm text-red-700">{error}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSignup} className="space-y-5">
+          <input
+            type="email"
+            placeholder="Email address"
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-600"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-indigo-600"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 flex items-center justify-center"
+          >
+            {loading ? "Creating account..." : <>Sign Up <ArrowRight className="ml-2 w-4 h-4" /></>}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Already have an account?{" "}
+          <Link href="/login" className="text-indigo-600 font-medium">
+            Sign in
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/upload/page.tsx">
+"use client";
+
+import { useRef, useState } from "react";
+import { Upload, Save } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+interface NodePoint {
+  id: string;
+  x: number;
+  y: number;
+}
+
+export default function MapUploadPage() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const router = useRouter();
+
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [nodes, setNodes] = useState<NodePoint[]>([]);
+
+  const handleImageUpload = (file: File) => {
+    const img = new Image();
+    img.onload = () => {
+      setImage(img);
+
+      // AUTO-GENERATE POIs
+      const autoNodes: NodePoint[] = [
+        { id: crypto.randomUUID(), x: img.width * 0.2, y: img.height * 0.2 },
+        { id: crypto.randomUUID(), x: img.width * 0.5, y: img.height * 0.4 },
+        { id: crypto.randomUUID(), x: img.width * 0.8, y: img.height * 0.6 },
+      ];
+
+      setNodes(autoNodes);
+      draw(img, autoNodes);
+    };
+    img.src = URL.createObjectURL(file);
+  };
+
+  const draw = (img: HTMLImageElement, nodes: NodePoint[]) => {
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+
+    nodes.forEach((n) => {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = "#4F46E5";
+      ctx.fill();
+    });
+  };
+
+  const saveMap = async () => {
+    await fetch("/api/maps/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        graphData: { nodes, edges: [] },
+      }),
+      credentials: "include",
+    });
+
+    router.push("/editor"); // redirect to editor
+  };
+
+  return (
+    <div className="min-h-screen p-6 bg-gray-50 space-y-6">
+      <h1 className="text-3xl font-bold">Upload Floor Map</h1>
+
+      <label className="flex gap-3 px-4 py-3 bg-white border rounded-lg cursor-pointer w-fit">
+        <Upload className="w-5 h-5 text-indigo-600" />
+        Upload Image
+        <input hidden type="file" accept="image/*" onChange={(e) => e.target.files && handleImageUpload(e.target.files[0])} />
+      </label>
+
+      {image && (
+        <canvas ref={canvasRef} className="border rounded bg-white" />
+      )}
+
+      {nodes.length > 0 && (
+        <button onClick={saveMap} className="px-5 py-3 bg-indigo-600 text-white rounded-lg flex gap-2">
+          <Save /> Continue to Editor
+        </button>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="app/globals.css">
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+body { @apply bg-gray-50; }
+</file>
+
+<file path="app/layout.tsx">
+import type { ReactNode } from "react";
+import "./globals.css";
+
+export const metadata = {
+  title: "Vazhikatti",
+  description: "Indoor Navigation Platform",
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body className="bg-gray-50 min-h-screen">
+        {children}
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="app/page.tsx">
+import Link from "next/link";
+import { ArrowRight, MapPin, Navigation, Shield, BarChart3, Users } from "lucide-react";
+
+export default function Home() {
+  return (
+    <div className="min-h-screen">
+      <nav className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-2">
+              <Navigation className="w-8 h-8 text-indigo-600" />
+              <span className="text-xl font-bold text-gray-900">Vazhikatti</span>
+            </div>
+            <div className="hidden md:flex items-center space-x-8">
+              <Link href="#features" className="text-gray-600 hover:text-indigo-600 transition">Features</Link>
+              <Link href="#how-it-works" className="text-gray-600 hover:text-indigo-600 transition">How It Works</Link>
+              <Link href="/pricing" className="text-gray-600 hover:text-indigo-600 transition">Pricing</Link>
+              <Link href="/login" className="text-gray-600 hover:text-indigo-600 transition">Sign In</Link>
+              <Link href="/pricing" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">Get Started</Link>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 text-center">
+        <div className="max-w-7xl mx-auto">
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 mb-4">
+            <Shield className="w-4 h-4 mr-2" /> Enterprise-Grade Navigation Solution
+          </span>
+          <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
+            Validate and Improve <span className="block text-indigo-600">Indoor Navigation</span>
+          </h1>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-10">
+            Transform static floor plans into intelligent navigation systems. Vazhikatti validates maps, analyzes navigation patterns, and delivers actionable insights for healthcare facilities, campuses, and complex buildings.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/pricing" className="inline-flex items-center px-8 py-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-lg font-medium">
+              Start Free Trial <ArrowRight className="ml-2 w-5 h-5" />
+            </Link>
+            <Link href="/upload" className="inline-flex items-center px-8 py-4 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition text-lg font-medium">
+              Upload Your Maps
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-16 bg-indigo-600">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8 text-center text-white">
+          <div><div className="text-3xl font-bold mb-2">500+</div>Facilities Optimized</div>
+          <div><div className="text-3xl font-bold mb-2">2M+</div>Navigation Points Mapped</div>
+          <div><div className="text-3xl font-bold mb-2">99.9%</div>Accuracy Rate</div>
+          <div><div className="text-3xl font-bold mb-2">24/7</div>System Uptime</div>
+        </div>
+      </section>
+
+      <section id="features" className="py-20 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto text-center mb-16">
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">Comprehensive Navigation Analytics</h2>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            From map validation to real-time navigation, we provide the complete toolkit for indoor wayfinding excellence.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-6">
+              <MapPin className="w-6 h-6 text-indigo-600" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Smart Map Validation</h3>
+            <p className="text-gray-600">Automatically validate floor plans for navigation accuracy, identify bottlenecks, and optimize routing paths.</p>
+          </div>
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-6">
+              <BarChart3 className="w-6 h-6 text-indigo-600" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">Advanced Analytics</h3>
+            <p className="text-gray-600">Gain insights into visitor patterns, dwell times, and navigation efficiency with comprehensive dashboards.</p>
+          </div>
+          <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-6">
+              <Users className="w-6 h-6 text-indigo-600" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">User-Centric Design</h3>
+            <p className="text-gray-600">Intuitive interfaces for both administrators and end-users, ensuring seamless adoption and engagement.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="py-20 bg-gray-50 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto text-center mb-16">
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">How Vazhikatti Works</h2>
+          <p className="text-xl text-gray-600">Transform your facility in four simple steps</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
+          {["Upload Maps", "Edit & Validate", "Deploy Navigation", "Analyze & Optimize"].map((step, idx) => (
+            <div key={idx}>
+              <div className="w-16 h-16 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">{idx + 1}</div>
+              <h3 className="font-semibold text-gray-900 mb-2">{step}</h3>
+              <p className="text-gray-600">{[
+                "Import your floor plans and building layouts",
+                "Define navigation points and optimize routes",
+                "Launch live navigation for your visitors",
+                "Monitor performance and continuously improve"
+              ][idx]}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="py-20 bg-indigo-600 px-4 sm:px-6 lg:px-8 text-center">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-4xl font-bold text-white mb-6">Ready to Transform Your Indoor Navigation?</h2>
+          <p className="text-xl text-indigo-200 mb-8">Join hundreds of facilities using Vazhikatti to deliver exceptional wayfinding experiences.</p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/pricing" className="inline-flex items-center px-8 py-4 bg-white text-indigo-600 rounded-lg hover:bg-gray-100 transition text-lg font-medium">Start Your Free Trial <ArrowRight className="ml-2 w-5 h-5" /></Link>
+            <Link href="/upload" className="inline-flex items-center px-8 py-4 border border-white text-white rounded-lg hover:bg-indigo-700 transition text-lg font-medium">Schedule Demo</Link>
+          </div>
+        </div>
+      </section>
+
+      <footer className="bg-gray-900 text-gray-300 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div>
+            <div className="flex items-center space-x-2 mb-4">
+              <Navigation className="w-8 h-8 text-indigo-400" />
+              <span className="text-xl font-bold text-white">Vazhikatti</span>
+            </div>
+            <p className="text-gray-400">Enterprise-grade indoor navigation and analytics platform.</p>
+          </div>
+          <div>
+            <h4 className="text-white font-semibold mb-4">Product</h4>
+            <ul className="space-y-2">
+              <li><Link href="/pricing" className="hover:text-white transition">Pricing</Link></li>
+              <li><Link href="#features" className="hover:text-white transition">Features</Link></li>
+              <li><Link href="/upload" className="hover:text-white transition">Upload</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-white font-semibold mb-4">Company</h4>
+            <ul className="space-y-2">
+              <li><Link href="#" className="hover:text-white transition">About</Link></li>
+              <li><Link href="#" className="hover:text-white transition">Blog</Link></li>
+              <li><Link href="#" className="hover:text-white transition">Contact</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-white font-semibold mb-4">Support</h4>
+            <ul className="space-y-2">
+              <li><Link href="#" className="hover:text-white transition">Documentation</Link></li>
+              <li><Link href="#" className="hover:text-white transition">API Reference</Link></li>
+              <li><Link href="#" className="hover:text-white transition">Status</Link></li>
+            </ul>
+          </div>
+        </div>
+        <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
+          &copy; {new Date().getFullYear()} Vazhikatti. All rights reserved.
+        </div>
+      </footer>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/Button.tsx">
+import { ReactNode } from "react";
+export default function Button({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-indigo-600 text-white px-5 py-2 rounded-lg hover:bg-indigo-500 transition"
+    >
+      {children}
+    </button>
+  );
+}
+</file>
+
+<file path="src/components/Card.tsx">
+import { ReactNode } from "react";
+
+interface CardProps {
+  /** Optional metric props */
+  title?: string;
+  value?: string;
+  icon?: ReactNode;
+
+  /** Layout usage */
+  children?: ReactNode;
+  className?: string;
+}
+
+export default function Card({
+  title,
+  value,
+  icon,
+  children,
+  className = "",
+}: CardProps) {
+  return (
+    <div
+      className={`bg-white border border-gray-200 rounded-xl shadow-sm p-6 hover:shadow-md transition ${className}`}
+    >
+      {/* Metric Card Mode */}
+      {(title || value) && (
+        <div className="flex flex-col gap-2 mb-4">
+          {icon && <div className="text-indigo-500">{icon}</div>}
+          {title && <h3 className="text-sm text-gray-500">{title}</h3>}
+          {value && <p className="text-2xl font-bold text-gray-900">{value}</p>}
+        </div>
+      )}
+
+      {/* Layout Card Mode */}
+      {children}
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/Layout.tsx">
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ReactNode, useEffect, useState } from "react";
+import { Shield, LogOut, Menu, X, Navigation, Settings, Upload, Map, BarChart3 } from "lucide-react";
+
+export default function Layout({ children, showSidebar }: { children: ReactNode; showSidebar?: boolean }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check authentication status
+    const auth = localStorage.getItem("isAuthenticated");
+    setIsAuthenticated(auth === "true");
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem("isAuthenticated");
+    localStorage.removeItem("userEmail");
+    setIsAuthenticated(false);
+    router.push("/login");
+  };
+
+  // Public navigation for marketing pages
+  const PublicNav = () => (
+    <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <Link href="/" className="flex items-center space-x-2">
+            <Navigation className="w-8 h-8 text-indigo-600" />
+            <span className="text-xl font-bold text-gray-900">HospiNav Pro</span>
+          </Link>
+          
+          <div className="hidden md:flex items-center space-x-8">
+            <Link href="/#features" className="text-gray-600 hover:text-indigo-600 transition">Features</Link>
+            <Link href="/#how-it-works" className="text-gray-600 hover:text-indigo-600 transition">How It Works</Link>
+            <Link href="/pricing" className="text-gray-600 hover:text-indigo-600 transition">Pricing</Link>
+            <Link href="/login" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">
+              Sign In
+            </Link>
+          </div>
+
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden py-4 border-t">
+            <div className="flex flex-col space-y-3">
+              <Link href="/#features" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Features</Link>
+              <Link href="/#how-it-works" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">How It Works</Link>
+              <Link href="/pricing" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Pricing</Link>
+              <Link href="/login" className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-center">
+                Sign In
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+
+  // Authenticated navigation for app pages
+  const AuthNav = () => (
+    <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <Link href="/dashboard" className="flex items-center space-x-2">
+            <Shield className="w-8 h-8 text-indigo-600" />
+            <span className="text-xl font-bold text-gray-900">HospiNav Pro</span>
+          </Link>
+          
+          <div className="hidden md:flex items-center space-x-6">
+            <Link href="/dashboard" className="text-gray-600 hover:text-indigo-600 transition flex items-center">
+              <BarChart3 className="w-4 h-4 mr-1" />
+              Dashboard
+            </Link>
+            <Link href="/upload" className="text-gray-600 hover:text-indigo-600 transition flex items-center">
+              <Upload className="w-4 h-4 mr-1" />
+              Upload
+            </Link>
+            <Link href="/editor" className="text-gray-600 hover:text-indigo-600 transition flex items-center">
+              <Map className="w-4 h-4 mr-1" />
+              Editor
+            </Link>
+            <Link href="/navigate" className="text-gray-600 hover:text-indigo-600 transition flex items-center">
+              <Navigation className="w-4 h-4 mr-1" />
+              Navigate
+            </Link>
+            <Link href="/qr" className="text-gray-600 hover:text-indigo-600 transition flex items-center">
+              Settings
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="flex items-center text-red-600 hover:text-red-700 transition"
+            >
+              <LogOut className="w-4 h-4 mr-1" />
+              Logout
+            </button>
+          </div>
+
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
+          >
+            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden py-4 border-t">
+            <div className="flex flex-col space-y-3">
+              <Link href="/dashboard" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Dashboard</Link>
+              <Link href="/upload" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Upload</Link>
+              <Link href="/editor" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Editor</Link>
+              <Link href="/navigate" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">Navigate</Link>
+              <Link href="/qr" className="text-gray-600 hover:text-indigo-600 transition px-2 py-1">QR Codes</Link>
+              <button
+                onClick={handleLogout}
+                className="text-red-600 hover:text-red-700 transition px-2 py-1 text-left"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Render appropriate navigation based on authentication and sidebar requirement */}
+      {showSidebar ? <AuthNav /> : <PublicNav />}
+      
+      <div className="flex">
+        {/* Sidebar for authenticated pages */}
+        {showSidebar && (
+          <aside className="w-64 bg-white shadow-md h-screen sticky top-16 border-r border-gray-200 hidden md:block">
+            <div className="p-6">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                Navigation
+              </h3>
+              <nav className="space-y-2">
+                <Link
+                  href="/dashboard"
+                  className="flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 text-gray-700 hover:text-indigo-600 transition"
+                >
+                  <BarChart3 className="w-4 h-4 mr-3" />
+                  Dashboard
+                </Link>
+                <Link
+                  href="/upload"
+                  className="flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 text-gray-700 hover:text-indigo-600 transition"
+                >
+                  <Upload className="w-4 h-4 mr-3" />
+                  Upload Maps
+                </Link>
+                <Link
+                  href="/editor"
+                  className="flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 text-gray-700 hover:text-indigo-600 transition"
+                >
+                  <Map className="w-4 h-4 mr-3" />
+                  Map Editor
+                </Link>
+                <Link
+                  href="/navigate"
+                  className="flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 text-gray-700 hover:text-indigo-600 transition"
+                >
+                  <Navigation className="w-4 h-4 mr-3" />
+                  Live Navigation
+                </Link>
+                <Link
+                  href="/qr"
+                  className="flex items-center px-3 py-2 text-sm font-medium rounded-lg hover:bg-gray-100 text-gray-700 hover:text-indigo-600 transition"
+                >
+                  Settings
+                </Link>
+              </nav>
+
+              <div className="mt-8">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">
+                  Quick Actions
+                </h3>
+                <div className="space-y-2">
+                  <Link
+                    href="/upload"
+                    className="flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition"
+                  >
+                    <Upload className="w-4 h-4 mr-3" />
+                    Upload New Map
+                  </Link>
+                  <Link
+                    href="/editor"
+                    className="flex items-center px-3 py-2 text-sm font-medium rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition"
+                  >
+                    <Map className="w-4 h-4 mr-3" />
+                    Create Route
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {/* Main content area */}
+        <main className={`flex-1 ${showSidebar ? 'md:ml-0' : ''}`}>
+          {children}
+        </main>
+      </div>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200 py-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col md:flex-row justify-between items-center">
+            <p className="text-gray-500 text-sm">
+              © {new Date().getFullYear()} HospiNav Pro. All rights reserved.
+            </p>
+            <div className="flex space-x-6 mt-4 md:mt-0">
+              <Link href="#" className="text-gray-500 hover:text-gray-700 text-sm">Privacy</Link>
+              <Link href="#" className="text-gray-500 hover:text-gray-700 text-sm">Terms</Link>
+              <Link href="#" className="text-gray-500 hover:text-gray-700 text-sm">Support</Link>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/ProgressBar.tsx">
+export default function ProgressBar({ progress }: { progress: number }) {
+  return (
+    <div className="w-full bg-gray-200 rounded-full h-4">
+      <div
+        className="bg-indigo-600 h-4 rounded-full transition-all"
+        style={{ width: `${progress}%` }}
+      ></div>
+    </div>
+  );
+}
+</file>
+
+<file path="src/components/Sidebar.tsx">
+import Link from "next/link";
+export default function Sidebar() {
+  return (
+    <aside className="w-60 bg-white shadow-md flex flex-col p-4 gap-4">
+      <h2 className="text-xl font-bold text-indigo-600">Navigation</h2>
+      <Link href="/dashboard" className="hover:text-indigo-500">Overview</Link>
+      <Link href="/upload" className="hover:text-indigo-500">Map Upload</Link>
+      <Link href="/editor" className="hover:text-indigo-500">Editor</Link>
+      <Link href="/navigate" className="hover:text-indigo-500">Navigate</Link>
+      <Link href="/qr" className="hover:text-indigo-500">QR Codes</Link>
+      <Link href="/login" className="hover:text-indigo-500">Settings</Link>
+    </aside>
+  );
+}
+</file>
+
+<file path="src/SidebarLayout.tsx">
+"use client";
+
+import Link from "next/link";
+import { ReactNode } from "react";
+import { LogOut, LayoutDashboard, Upload } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+export default function SidebarLayout({
+  children,
+  auth,
+}: {
+  children: ReactNode;
+  auth: boolean;
+}) {
+  const router = useRouter();
+
+  const logout = () => {
+    localStorage.clear();
+    router.push("/login");
+  };
+
+  return (
+    <div className="min-h-screen flex bg-gray-50">
+      {auth && (
+        <aside className="w-64 bg-white border-r hidden md:block">
+          <div className="p-6 font-bold text-xl">HospiNav Pro</div>
+          <nav className="px-4 space-y-2">
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
+            >
+              <LayoutDashboard className="w-4 h-4" /> Dashboard
+            </Link>
+            <Link
+              href="/upload"
+              className="flex items-center gap-2 p-2 rounded hover:bg-gray-100"
+            >
+              <Upload className="w-4 h-4" /> Upload
+            </Link>
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 p-2 text-red-600 hover:bg-red-50 rounded w-full"
+            >
+              <LogOut className="w-4 h-4" /> Logout
+            </button>
+          </nav>
+        </aside>
+      )}
+
+      <main className="flex-1">{children}</main>
+    </div>
+  );
+}
+</file>
+
+<file path=".env.example">
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+</file>
+
+<file path=".env.local">
+NEXT_PUBLIC_API_URL=http://localhost:3001
+</file>
+
+<file path="middleware.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { jwtVerify } from "jose";
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+
+// Paths that don’t require auth
+const publicPaths = [
+  "/login",
+  "/signup",
+  "/api/auth/login",
+  "/api/auth/signup",
+];
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Skip public paths
+  if (publicPaths.some(path => pathname.startsWith(path))) {
+    return NextResponse.next();
+  }
+
+  // Protect private paths
+  const token = req.cookies.get("auth-token")?.value;
+
+  if (!token) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  try {
+    await jwtVerify(token, JWT_SECRET);
+    return NextResponse.next();
+  } catch {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+}
+
+export const config = {
+  matcher: [
+    "/dashboard/:path*",
+    "/upload/:path*",
+    "/editor/:path*",
+    "/qr/:path*",
+  ],
+};
+</file>
+
+<file path="next-env.d.ts">
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/app/building-your-application/configuring/typescript for more information.
+</file>
+
+<file path="next.config.js">
+const nextConfig = { reactStrictMode: true }; module.exports = nextConfig;
+</file>
+
+<file path="package.json">
+{
+  "name": "hospinav-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@tailwindcss/typography": "^0.5.10",
+    "jose": "^6.1.3",
+    "lucide-react": "^0.276.0",
+    "next": "^14.2.35",
+    "qrcode.react": "^4.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-sparklines": "^1.7.0",
+    "recharts": "^2.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.2",
+    "@types/react": "^18.2.21",
+    "autoprefixer": "^10.4.15",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.2.2"
+  }
+}
+</file>
+
+<file path="postcss.config.js">
+module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };
+</file>
+
+<file path="replace.js">
+const fs = require("fs");
+const path = require("path");
+
+// Folder to scan
+const FRONTEND_DIR = path.join(__dirname, "app"); // adjust if your folder is "src"
+
+// Mapping of replacements
+const replacements = [
+  { search: /HospiNav Pro/g, replace: "Vazhikatti" },
+  { search: /HN/g, replace: "VZ" },
+  { search: /https:\/\/hospinav\.pro/g, replace: "https://vazhikatti.pro" },
+  // Add dynamic QR URL patterns if any
+  { search: /hospinav\.pro\/nav/g, replace: "vazhikatti.pro/nav" }
+];
+
+// Recursively get all .tsx files
+function getAllTSXFiles(dir) {
+  let results = [];
+  const list = fs.readdirSync(dir);
+  list.forEach(file => {
+    const filePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+    if (stat && stat.isDirectory()) {
+      results = results.concat(getAllTSXFiles(filePath));
+    } else if (filePath.endsWith(".tsx")) {
+      results.push(filePath);
+    }
+  });
+  return results;
+}
+
+// Replace content in files
+function replaceInFiles(files) {
+  files.forEach(file => {
+    let content = fs.readFileSync(file, "utf8");
+    replacements.forEach(r => {
+      content = content.replace(r.search, r.replace);
+    });
+    fs.writeFileSync(file, content, "utf8");
+    console.log(`Updated: ${file}`);
+  });
+}
+
+const tsxFiles = getAllTSXFiles(FRONTEND_DIR);
+replaceInFiles(tsxFiles);
+
+console.log("\n✅ All frontend files updated!");
+</file>
+
+<file path="tailwind.config.js">
+// tailwind.config.ts
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./app/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [
+    require("@tailwindcss/typography"),
+  ],
+};
+
+export default config;
+</file>
+
+<file path="todo.md">
+# HospiNav Pro SaaS Transformation
+
+## Phase 1: Analyze Current Structure
+- [x] Extract and examine the uploaded zip file
+- [x] Review current file structure and implementation
+- [x] Identify existing pages and components
+
+## Phase 2: Implement Public-Facing SaaS Structure
+- [x] Create polished marketing homepage
+- [x] Implement pricing page with conversion focus
+- [x] Set up login/authentication gateway
+- [x] Create protected dashboard area
+
+## Phase 3: Core Functionality Implementation
+- [x] Build map upload/ingestion system
+- [x] Create interactive map editor
+- [x] Implement live navigation system
+- [x] Add QR code generation for deployment
+
+## Phase 4: SaaS Integration & Polish
+- [x] Connect all pages in logical flow
+- [x] Implement consistent navigation and branding
+- [x] Add proper error handling and validation
+- [x] Test complete user journey
+
+## Phase 5: Final Integration
+- [x] Ensure all components work together
+- [x] Verify SaaS funnel from marketing to deployment
+- [x] Test authentication and protected routes
+- [x] Finalize user experience flow
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES6",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "plugins": [
+      { "name": "next" }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}
+</file>
+
+</files>

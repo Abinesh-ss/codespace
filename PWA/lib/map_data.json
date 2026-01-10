@@ -1,0 +1,10 @@
+{
+  "anchors": [
+    { "id": "QR_ENTRANCE", "floor": 0, "x": 10, "y": 20, "label": "Main Entrance" },
+    { "id": "QR_ELEVATOR_A", "floor": 1, "x": 45, "y": 50, "label": "Floor 1 Elevators" },
+    { "id": "QR_PHARMACY", "floor": 0, "x": 80, "y": 15, "label": "Pharmacy" }
+  ],
+  "paths": [
+    { "from": "QR_ENTRANCE", "to": "QR_PHARMACY", "distance_meters": 35 }
+  ]
+}

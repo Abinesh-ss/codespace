@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  name             String?
+  planStatus       PlanStatus  @default(FREE)
+  creditsRemaining Int         @default(10)
+
+  hospitals    Hospital[]
+  subscription Subscription?
+
+  analyticsEvents AnalyticsEvent[]
+
+  stripeCustomerId String? 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status               String
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Hospital {
+  id                 String             @id @default(cuid())
+  name               String
+  address            String
+  country            String
+  state              String?
+  region             Region
+  subscriptionStatus SubscriptionStatus
+
+  trialEndsAt        DateTime?
+  paymentProvider    PaymentProvider?
+
+  createdByUser String
+  user          User   @relation(fields: [createdByUser], references: [id])
+
+  analyticsEvents AnalyticsEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  floors Floor[]
+  maps   Map[]      // Added relation to Map
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  eventType String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+
+  hospitalId String?
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
+
+  @@index([userId])
+  @@index([hospitalId])
+}
+
+model Floor {
+  id         String    @id @default(cuid())
+  name       String
+  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+  graphData  Json
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Map {
+  id        String   @id @default(cuid())
+  name      String
+  imageUrl  String
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+
+  pois   POI[]
+  routes Route[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model POI {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  x         Float
+  y         Float
+  map       Map      @relation(fields: [mapId], references: [id])
+  mapId     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Route {
+  id       String   @id @default(cuid())
+  fromId   String
+  toId     String
+  distance Float
+  map      Map      @relation(fields: [mapId], references: [id])
+  mapId    String
+}
+
+enum Region {
+  TAMIL_NADU
+  INDIA_OTHER
+  INTERNATIONAL
+}
+
+enum SubscriptionStatus {
+  FREE
+  TRIAL
+  ACTIVE
+  EXPIRED
+}
+
+enum PlanStatus {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
+}
+

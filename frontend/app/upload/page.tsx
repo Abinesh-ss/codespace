@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
-import { supabase } from "@/lib/supabase"; // Ensure you've created this file
+import { supabase } from "@/lib/supabase"; 
 import { 
   Upload as UploadIcon, 
   FileText, 
@@ -23,7 +23,7 @@ interface UploadFile {
   status: "uploading" | "completed" | "error";
   progress: number;
   dbId?: string;
-  rawFile: File; // Added to store the actual file for Supabase
+  rawFile: File; 
 }
 
 export default function Upload() {
@@ -37,7 +37,7 @@ export default function Upload() {
     const checkAuth = async () => {
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`, {
-          credentials: "include"
+          credentials: "include" // Vital for CORS/Session
         });
         if (res.status === 401) { window.location.href = "/login"; return; }
         
@@ -64,7 +64,7 @@ export default function Upload() {
 
       // 1. Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('hospital-maps') // Your bucket name
+        .from('hospital-maps') 
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
@@ -86,7 +86,7 @@ export default function Upload() {
 
     } catch (err) {
       console.error("Upload process failed:", err);
-      setFiles(prev => prev.map(f => f.id === fileInfo.id ? { ...f, status: "error" } : f));
+      setFiles(prev => prev.map(f => f.id === fileInfo.id ? { ...f, status: "error", progress: 0 } : f));
     }
   };
 
@@ -105,10 +105,11 @@ export default function Upload() {
 
       if (!mapRes.ok) throw new Error("Map DB Save failed");
       const mapData = await mapRes.json();
-      const mapId = mapData.mapId || mapData.id;
+      
+      // Fix: Support both 'id' or 'mapId' returning from your specific backend
+      const mapId = mapData.id || mapData.mapId;
 
       // TRIGGER AUTO-POI IDENTIFICATION
-      // FIX: credentials: "include" added here to prevent 401
       const poiRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,9 +117,12 @@ export default function Upload() {
         body: JSON.stringify({
           action: "IDENTIFY_AUTO",
           mapId: mapId,
-          graphData: { nodes: [] } // Pass actual nodes if available
+          graphData: { nodes: [] } 
         }),
       });
+
+      // We don't throw error here so the Map still saves even if AI fails
+      if (!poiRes.ok) console.warn("POI identification failed to trigger.");
 
       localStorage.setItem("uploadedMapUrl", realUrl);
       return mapId;
@@ -137,7 +141,7 @@ export default function Upload() {
       size: file.size,
       type: file.type,
       status: "uploading",
-      progress: 50, // Initial UI progress
+      progress: 50, 
       rawFile: file
     }));
 

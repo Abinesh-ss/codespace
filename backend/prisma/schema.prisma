@@ -97,16 +97,17 @@ model Map {
   hospital  Hospital @relation(fields: [hospitalId], references: [id])
   hospitalId String
 
-  pois   POI[]
+  pois   Poi[]
   routes Route[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model POI {
+model Poi {
   id        String   @id @default(cuid())
   name      String
+  qrId      String   @unique 
   type      String
   x         Float
   y         Float

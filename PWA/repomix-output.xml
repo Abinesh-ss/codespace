@@ -52,11 +52,11 @@ components/
   FloorDetector.tsx
   LiveLocation.tsx
   MapOverlay.tsx
-  NavigationSteps (1).tsx
   NavigationSteps.tsx
   QRAnchorScanner.tsx
   TurnArrow.tsx
 lib/
+  cameraLock.ts
   indoorPositioning.ts
   map_data.json
   types.ts
@@ -76,80 +76,243 @@ This section contains the contents of the repository's files.
 
 <file path="app/navigate/page.tsx">
 "use client";
+
 import { useState, useEffect } from "react";
+import { Search, RotateCcw, MapPin, X, Camera, Navigation, ChevronRight } from "lucide-react";
+
+// QR scanner and navigation components
 import QRAnchorScanner from "@/components/QRAnchorScanner";
-import MapOverlay from "@/components/MapOverlay";
 import NavigationSteps from "@/components/NavigationSteps";
-import { Compass, Map as MapIcon, Navigation } from "lucide-react";
+
+interface POI {
+  id: string;
+  name: string;
+  type: string;
+  map: { name: string };
+}
+
+interface ScanResponse {
+  nodeId: string;
+  locationName: string;
+  floorId: string;
+}
 
 export default function NavigatePage() {
-  const [floor, setFloor] = useState(0);
-  const [pos, setPos] = useState({ x: 50, y: 50 });
-  const [currentLocation, setCurrentLocation] = useState("Scan a QR to Begin");
+  const [isSearching, setIsSearching] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
-  // Industrial UI state for switching between Camera view and Map view
-  const [viewMode, setViewMode] = useState<"camera" | "map">("camera");
+  // Logic states
+  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+  const [scannedNodeId, setScannedNodeId] = useState<string | undefined>();
+  const [targetNodeId, setTargetNodeId] = useState<string | undefined>();
+  const [floorId, setFloorId] = useState<string | undefined>("1");
 
-  const handleQRDetect = (data: any) => {
-    if (data.x !== undefined && data.y !== undefined) {
-      setFloor(data.floor || 0);
-      setPos({ x: data.x, y: data.y });
-      setCurrentLocation(data.label || `Zone ${data.id || 'Alpha'}`);
-      
-      // Haptic feedback (vibration) when QR is detected (standard for industrial apps)
-      if (typeof window !== "undefined" && window.navigator.vibrate) {
-        window.navigator.vibrate(100);
+  // POIs fetched from backend
+  const [poiList, setPoiList] = useState<POI[]>([]);
+
+  // Replace with the real hospital ID from your DB
+  const hospitalId = "hospital_1";
+
+  // Fetch POIs from backend
+  useEffect(() => {
+    const fetchPOIs = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/hospital/${hospitalId}/locations`);
+        if (!res.ok) throw new Error("Failed to fetch POIs");
+        const data: POI[] = await res.json();
+        setPoiList(data);
+      } catch (err) {
+        console.error("Failed to fetch POIs:", err);
+        setPoiList([]);
       }
+    };
+    fetchPOIs();
+  }, [hospitalId]);
+
+  const handleReset = () => {
+    setScannedNodeId(undefined);
+    setTargetNodeId(undefined);
+    setCurrentLocation("Scan QR to Begin");
+    setShowScanner(false);
+    setIsSearching(false);
+  };
+
+  /**
+   * ✅ FIXED: Resolve QR URL → backend → real location
+   */
+  const handleQRDetect = async (data: any) => {
+    try {
+      const scanUrl = typeof data === "string" ? data : data?.data;
+      if (!scanUrl) throw new Error("Invalid QR data");
+
+      const res = await fetch(scanUrl);
+      if (!res.ok) throw new Error("Failed to resolve scan");
+
+      const location: ScanResponse = await res.json();
+
+      setScannedNodeId(location.nodeId);
+      setFloorId(location.floorId);
+      setCurrentLocation(location.locationName);
+      setShowScanner(false);
+    } catch (error) {
+      console.error("QR scan resolve failed:", error);
+      setCurrentLocation("Unknown location");
+      setShowScanner(false);
     }
   };
 
   return (
-    <main className="fixed inset-0 bg-slate-950 flex flex-col font-sans text-slate-50">
-      {/* --- HEADER --- */}
-      <header className="p-4 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 flex justify-between items-center">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">HospiNav <span className="text-blue-500">PRO</span></h1>
-          <p className="text-xs text-slate-400 flex items-center gap-1">
-            <Compass size={12} className="text-blue-400" /> {currentLocation}
-          </p>
+    <main className="min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans">
+      {/* HEADER */}
+      <header className="h-16 px-6 grid grid-cols-3 items-center border-b border-white/5 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
+        <div />
+        <div className="flex justify-center">
+          <span className="text-sm font-black tracking-[0.3em] text-blue-500 uppercase">Vazhikatti</span>
         </div>
-        <div className="bg-blue-600 px-3 py-1 rounded-full text-xs font-mono">
-          FL {floor}
+        <div className="flex justify-end">
+          <button
+            onClick={handleReset}
+            className="p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-white border border-white/10 transition-all active:scale-95"
+          >
+            <RotateCcw size={18} />
+          </button>
         </div>
       </header>
 
-      {/* --- MAIN VIEWPORT --- */}
-      <div className="relative flex-1 overflow-hidden">
-        {viewMode === "camera" ? (
-          <div className="w-full h-full">
-             <QRAnchorScanner onDetect={handleQRDetect} />
-             {/* Scanning Frame Overlay */}
-             <div className="absolute inset-0 border-[40px] border-slate-950/40 pointer-events-none flex items-center justify-center">
-                <div className="w-64 h-64 border-2 border-blue-400 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.5)]"></div>
-             </div>
-          </div>
-        ) : (
-          <div className="w-full h-full p-4 bg-slate-800">
-            <MapOverlay floor={floor} x={pos.x} y={pos.y} />
-          </div>
-        )}
-
-        {/* Floating View Switcher */}
-        <div className="absolute top-4 right-4 flex flex-col gap-2">
-          <button 
-            onClick={() => setViewMode(viewMode === "camera" ? "map" : "camera")}
-            className="p-3 bg-white text-slate-900 rounded-full shadow-xl hover:scale-110 transition-transform"
-          >
-            {viewMode === "camera" ? <MapIcon size={24} /> : <Navigation size={24} />}
-          </button>
+      {/* MAIN CONTENT */}
+      <section className="flex-1 flex flex-col items-center justify-center px-6 py-10 max-w-md mx-auto w-full gap-12">
+        {/* QR Scanner */}
+        <div className="w-full flex flex-col items-center gap-8">
+          {showScanner ? (
+            <div className="relative w-full aspect-square overflow-hidden rounded-[2.5rem] border-2 border-blue-500 shadow-2xl shadow-blue-500/20 bg-black">
+              <QRAnchorScanner onDetect={handleQRDetect} />
+              <button
+                onClick={() => setShowScanner(false)}
+                className="absolute top-4 right-4 z-10 p-2 bg-black/60 text-white rounded-full backdrop-blur-md"
+              >
+                <X size={20} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-6 w-full text-center">
+              <div className="relative">
+                <div className="absolute inset-0 bg-blue-600/20 blur-[60px] rounded-full" />
+                <div className="relative p-8 rounded-full bg-slate-900 border border-blue-500/20 text-blue-500 shadow-2xl">
+                  <MapPin size={64} strokeWidth={1.5} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-[0.3em] text-blue-400 font-black">
+                  Current Position
+                </p>
+                <h2 className="text-3xl font-bold text-white tracking-tight">
+                  {currentLocation}
+                </h2>
+              </div>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="flex items-center gap-3 px-8 py-4 rounded-full bg-blue-600 text-white font-bold shadow-lg shadow-blue-900/40 hover:bg-blue-500 transition-all active:scale-95"
+              >
+                <Camera size={20} /> Open Scanner
+              </button>
+            </div>
+          )}
         </div>
-      </div>
 
-      {/* --- BOTTOM DRAWER (Navigation Instructions) --- */}
-      <section className="bg-white text-slate-900 rounded-t-[32px] p-6 shadow-2xl">
-        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6" />
-        <NavigationSteps />
+        {/* Search Button */}
+        {!targetNodeId && !showScanner && (
+          <button
+            onClick={() => setIsSearching(true)}
+            className="w-full flex items-center justify-between px-6 py-5 rounded-3xl bg-slate-900 border border-white/10 text-slate-300 hover:text-white hover:border-blue-500/50 transition-all group"
+          >
+            <div className="flex items-center gap-4">
+              <Search className="text-blue-500" size={24} />
+              <span className="font-semibold text-lg">Where to?</span>
+            </div>
+            <ChevronRight className="opacity-30 group-hover:opacity-100 transition-opacity" />
+          </button>
+        )}
       </section>
+
+      {/* Navigation Panel */}
+      {targetNodeId && (
+        <section className="p-6 bg-slate-900 border-t border-white/10 rounded-t-[3rem] animate-in slide-in-from-bottom duration-500 shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+          <div className="max-w-md mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-1">
+                  Destination
+                </p>
+                <h4 className="text-xl font-bold">{targetNodeId}</h4>
+              </div>
+              <div className="p-3 bg-blue-500/10 rounded-2xl border border-blue-500/20">
+                <Navigation size={24} className="text-blue-500" />
+              </div>
+            </div>
+            <div className="bg-white/5 rounded-3xl p-2 border border-white/5">
+              <NavigationSteps
+                startNodeId={scannedNodeId}
+                endNodeId={targetNodeId}
+                floorId={floorId}
+              />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Search Modal */}
+      {isSearching && (
+        <div className="fixed inset-0 z-[100] bg-[#020617]/98 backdrop-blur-3xl p-8 flex flex-col pt-24 items-center">
+          <div className="w-full max-w-md">
+            <div className="flex items-center gap-4 bg-slate-900 border border-white/10 p-5 rounded-[2rem] shadow-2xl focus-within:border-blue-500 transition-all">
+              <Search className="text-slate-500" size={24} />
+              <input
+                autoFocus
+                placeholder="Find a department..."
+                className="flex-1 bg-transparent border-none outline-none text-xl text-white placeholder:text-slate-700"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && e.currentTarget.value) {
+                    setTargetNodeId(e.currentTarget.value);
+                    setIsSearching(false);
+                  }
+                }}
+                list="poi-options"
+              />
+              <datalist id="poi-options">
+                {poiList.map((poi) => (
+                  <option key={poi.id} value={poi.name} />
+                ))}
+              </datalist>
+              <button onClick={() => setIsSearching(false)} className="p-2 text-slate-500">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="mt-12 space-y-4">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">
+                Frequent Destinations
+              </p>
+              <div className="grid grid-cols-1 gap-2">
+                {poiList.slice(0, 4).map((poi) => (
+                  <button
+                    key={poi.id}
+                    onClick={() => {
+                      setTargetNodeId(poi.id);
+                      setIsSearching(false);
+                    }}
+                    className="flex items-center justify-between p-5 bg-white/5 border border-white/5 rounded-2xl hover:bg-blue-600 hover:border-blue-400 transition-all group"
+                  >
+                    <span className="font-bold">{poi.name}</span>
+                    <Navigation
+                      size={18}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -160,24 +323,62 @@ export default function NavigatePage() {
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 255, 255, 255;
-}
-
+/* REQUIRED FOR FULL-SCREEN APPS */
+html,
 body {
-  color: rgb(var(--foreground-rgb));
-  background: white;
+  width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
+}
+
+/* APP DEFAULTS */
+body {
+  background-color: #020617; /* slate-950 */
+  color: #f8fafc;           /* slate-50 */
+  overflow: hidden;         /* navigation apps must lock scroll */
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* OPTIONAL – if you want theme variables later */
+:root {
+  --app-bg: 2 6 23;
+  --app-fg: 248 250 252;
+}
+
+/* UTILITIES */
+@layer utilities {
+  .animate-scan {
+    animation: scan 2s linear infinite;
+  }
+
+  @keyframes scan {
+    0% {
+      transform: translateY(-110px);
+      opacity: 0;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(110px);
+      opacity: 0;
+    }
+  }
+
+  .bg-radial-gradient {
+    background: radial-gradient(
+      circle,
+      transparent 30%,
+      rgba(2, 6, 23, 0.9) 100%
+    );
+  }
 }
 </file>
 
 <file path="app/layout.tsx">
 import type { Metadata, Viewport } from "next";
-import "./globals.css"; // Ensure your Tailwind styles are loaded
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HospiNav Pro",
@@ -193,13 +394,12 @@ export const metadata: Metadata = {
   },
 };
 
-// This prevents the user from "pinch-zooming," which is standard for PWAs
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#1d4ed8", // Matches your blue-700 theme
+  themeColor: "#020617", // slate-950
 };
 
 export default function RootLayout({
@@ -208,8 +408,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="antialiased">
-      <body className="bg-slate-50 text-slate-900 selection:bg-blue-100">
+    <html
+      lang="en"
+      className="antialiased w-full h-full overflow-hidden"
+    >
+      <body
+        className="
+          w-screen
+          h-screen
+          m-0
+          p-0
+          bg-slate-950
+          text-slate-100
+          overflow-hidden
+        "
+      >
         {children}
       </body>
     </html>
@@ -393,62 +606,51 @@ export default function LiveLocation() {
 <file path="components/MapOverlay.tsx">
 "use client";
 
-export default function MapOverlay({ floor, x, y }: any) {
+export default function MapOverlay({
+  floor,
+  x,
+  y,
+}: {
+  floor: string;
+  x: number;
+  y: number;
+}) {
   return (
-    <div className="relative w-full aspect-square bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 overflow-hidden">
-      {/* Fallback Grid Pattern when image is missing */}
-      <div className="absolute inset-0 opacity-10" 
-           style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', size: '20px 20px' }} />
-      
-      {/* The Map Image (only shows if file exists) */}
-      <img 
-        src={`/maps/floor-${floor}.png`} 
-        alt={`Floor ${floor}`}
-        className="w-full h-full object-contain"
-        onError={(e) => (e.currentTarget.style.display = "none")} 
+    <div className="w-full h-full relative bg-[#020617]">
+
+      {/* GRID */}
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `
+            linear-gradient(to right, rgba(148,163,184,0.15) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(148,163,184,0.15) 1px, transparent 1px)
+          `,
+          backgroundSize: "64px 64px",
+        }}
       />
 
-      {/* The User's Live Position (The Red Dot) */}
-      <div 
+      {/* USER DOT */}
+      <div
+        className="absolute z-10"
         style={{
-          position: "absolute",
           left: `${x}%`,
           top: `${y}%`,
-          width: 16,
-          height: 16,
-          background: "red",
-          boxShadow: "0 0 10px rgba(255,0,0,0.5)",
-          borderRadius: "50%",
           transform: "translate(-50%, -50%)",
-          transition: "all 0.5s ease"
-        }} 
-      />
-      
-      <div className="absolute bottom-2 left-2 bg-white/80 px-2 py-1 rounded text-xs">
-        Floor: {floor} | X: {x}% Y: {y}%
+        }}
+      >
+        <div className="w-3 h-3 rounded-full bg-blue-500" />
+      </div>
+
+      {/* FLOOR LABEL */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2
+                      px-3 py-1 rounded-md
+                      bg-slate-900/80
+                      border border-white/10
+                      text-xs text-slate-300">
+        Floor {floor}
       </div>
     </div>
-  );
-}
-</file>
-
-<file path="components/NavigationSteps (1).tsx">
-"use client";
-import { useEffect, useState } from "react";
-
-export default function NavigationSteps() {
-  const [steps, setSteps] = useState<string[]>([]);
-
-  useEffect(() => {
-    fetch(process.env.NEXT_PUBLIC_API_BASE_URL + "/navigation/demo")
-      .then(res => res.json())
-      .then(data => setSteps(data.steps || []));
-  }, []);
-
-  return (
-    <ol>
-      {steps.map((s, i) => <li key={i}>{s}</li>)}
-    </ol>
   );
 }
 </file>
@@ -456,25 +658,87 @@ export default function NavigationSteps() {
 <file path="components/NavigationSteps.tsx">
 "use client";
 import { useEffect, useState } from "react";
-import TurnArrow from "./TurnArrow";
+import { ChevronRight, Navigation, MapPin, Loader2, Info } from "lucide-react";
 
-export default function NavigationSteps() {
+export default function NavigationSteps({ startNodeId, endNodeId, floorId }: any) {
   const [steps, setSteps] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch(process.env.NEXT_PUBLIC_API_BASE_URL + "/navigation/route")
-      .then(res => res.json())
-      .then(data => setSteps(data.steps || []));
-  }, []);
+    if (!startNodeId || !endNodeId || !floorId) {
+      setSteps([]);
+      return;
+    }
+
+    const fetchRoute = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/navigation/shortest-path`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ floorId, startNodeId, endNodeId })
+        });
+        const data = await res.json();
+        setSteps(data.instructions || []);
+      } catch (e) {
+        console.error("Pathfinding error", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRoute();
+  }, [startNodeId, endNodeId, floorId]);
+
+  // LOADING STATE: Industrial Spinner
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center p-8 gap-3">
+      <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      <p className="text-blue-200 text-xs font-bold uppercase tracking-widest">Calculating Path...</p>
+    </div>
+  );
 
   return (
-    <div>
-      {steps.map((s, i) => (
-        <div key={i}>
-          <p>{s.instruction}</p>
-          <TurnArrow direction={s.direction} />
+    <div className="w-full">
+      {steps.length > 0 ? (
+        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 no-scrollbar">
+          {steps.map((s, i) => (
+            <div 
+              key={i} 
+              className="snap-center shrink-0 w-[85%] first:ml-0 last:mr-0 bg-gradient-to-br from-slate-800 to-slate-900 border border-blue-500/30 p-5 rounded-2xl shadow-xl flex items-start gap-4"
+            >
+              <div className="flex flex-col items-center gap-1">
+                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]">
+                   <Navigation size={20} className={i === steps.length - 1 ? "hidden" : "block"} />
+                   <MapPin size={20} className={i === steps.length - 1 ? "block" : "hidden"} />
+                </div>
+                <span className="text-[10px] font-black text-slate-500">STEP {i + 1}</span>
+              </div>
+              
+              <div className="flex-1">
+                <p className="text-white font-semibold text-base leading-tight mb-1">{s}</p>
+                <div className="flex items-center gap-1">
+                   <span className="text-[10px] text-blue-400 font-bold uppercase tracking-tighter">Proceed carefully</span>
+                   <ChevronRight size={12} className="text-blue-400" />
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : (
+        /* EMPTY STATE: Professional Guide */
+        <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6 flex items-center gap-4">
+          <div className="p-3 bg-slate-800 rounded-full text-blue-400">
+            <Info size={24} />
+          </div>
+          <div>
+            <h4 className="text-white font-bold text-sm">Ready to Navigate?</h4>
+            <p className="text-slate-400 text-xs mt-1">
+              {!startNodeId ? "Scan the nearest QR code to verify your position." : "Search for a department to get turn-by-turn directions."}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -482,60 +746,135 @@ export default function NavigationSteps() {
 
 <file path="components/QRAnchorScanner.tsx">
 "use client";
-import { useEffect, useRef } from "react";
 
-export default function QRAnchorScanner({ onDetect }: { onDetect: (data: any) => void }) {
-  // 1. Explicitly type the ref as an HTMLVideoElement
+import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
+
+interface Props {
+  onDetect: (data: any) => void;
+}
+
+export default function QRAnchorScanner({ onDetect }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastScannedRef = useRef<string | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState<number>(0); // trigger re-run of useEffect
 
   useEffect(() => {
     let activeStream: MediaStream | null = null;
 
+    const scan = () => {
+      const video = videoRef.current;
+      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+        if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
+
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+          if (code && code.data !== lastScannedRef.current) {
+            lastScannedRef.current = code.data;
+
+            let parsedData: any;
+
+            try {
+              parsedData = JSON.parse(code.data);
+            } catch {
+              try {
+                const url = new URL(code.data);
+                parsedData = {
+                  url: code.data,
+                  hospitalId: url.searchParams.get("hospitalId"),
+                  mapId: url.searchParams.get("mapId"),
+                  scanId: url.pathname.split("/").pop(),
+                };
+              } catch {
+                parsedData = { data: code.data };
+              }
+            }
+
+            onDetect(parsedData);
+
+            // Stop camera immediately
+            if (activeStream) activeStream.getTracks().forEach(track => track.stop());
+            if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
+
+            setTimeout(() => (lastScannedRef.current = null), 3000);
+            return;
+          }
+        }
+      }
+      animationFrameIdRef.current = requestAnimationFrame(scan);
+    };
+
     const startCamera = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: "environment" } 
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
         });
-        
         activeStream = stream;
 
-        // 2. Use a local variable to ensure the ref hasn't changed
-        const currentVideo = videoRef.current;
-        if (currentVideo) {
-          currentVideo.srcObject = stream;
-          // 3. playsInline is mandatory for iOS Safari support
-          currentVideo.setAttribute("playsinline", "true");
-          currentVideo.play();
+        setCameraError(null); // clear any previous error
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute("playsinline", "true");
+          await videoRef.current.play();
+          scan();
         }
-      } catch (err) {
-        console.error("Camera access denied or not available:", err);
+      } catch (err: any) {
+        console.error("Camera access denied:", err);
+        setCameraError(
+          "Camera access denied. Please allow camera permissions and retry."
+        );
       }
     };
 
     startCamera();
 
-    // 4. CLEANUP: This stops the camera lens from staying "ON" (green light)
-    // when the user navigates away from the page.
     return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach(track => track.stop());
-      }
+      if (activeStream) activeStream.getTracks().forEach(track => track.stop());
+      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
     };
-  }, []);
+  }, [onDetect, retryKey]);
+
+  const handleRetry = () => {
+    setRetryKey(prev => prev + 1); // increment to re-trigger useEffect
+  };
 
   return (
     <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-800">
-      <video 
-        ref={videoRef} 
-        className="w-full h-full object-cover"
-        muted 
-      />
-      {/* Visual scanning guide */}
+      {cameraError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-red-500 text-center p-4 gap-4">
+          <span>{cameraError}</span>
+          <button
+            onClick={handleRetry}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+          >
+            Retry Camera
+          </button>
+        </div>
+      ) : (
+        <video ref={videoRef} className="w-full h-full object-cover" muted />
+      )}
+
+      {/* Visual scanning overlay */}
       <div className="absolute inset-0 border-[3px] border-blue-500/30 m-12 rounded-xl pointer-events-none">
         <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
         <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
         <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
         <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
+
+        {/* Animated scanning line */}
+        <div className="absolute top-1/2 left-0 w-full h-[2px] bg-blue-500/50 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
       </div>
     </div>
   );
@@ -555,6 +894,18 @@ export default function TurnArrow({ direction }: { direction: number }) {
       ⬆️
     </div>
   );
+}
+</file>
+
+<file path="lib/cameraLock.ts">
+let activeStream: MediaStream | null = null;
+
+export function getActiveStream() {
+  return activeStream;
+}
+
+export function setActiveStream(stream: MediaStream | null) {
+  activeStream = stream;
 }
 </file>
 
@@ -628,19 +979,20 @@ export interface RouteStep {
 </file>
 
 <file path="next.config.mjs">
-/** @type {import('next').Next.js} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Required for camera access on some browsers and deployment environments
+
   images: {
-    unoptimized: true, 
+    unoptimized: true,
   },
-  // Allows the app to connect to your backend API without CORS issues during dev
+
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_BASE_URL}/:path*`,
+        source: "/api/:path*",
+        destination: `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/:path*`,
+
       },
     ];
   },
@@ -662,6 +1014,8 @@ export default nextConfig;
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",
+    "@yudiel/react-qr-scanner": "^2.5.0",
+    "@zxing/browser": "^0.1.5",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.294.0",
     "next": "14.x",
@@ -740,10 +1094,37 @@ module.exports = {
     "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        app: {
+          bg: "#020617",     // slate-950
+          panel: "#020617E6", // translucent panels
+          border: "rgba(255,255,255,0.08)",
+          primary: "#2563eb", // blue-600
+        },
+      },
+      zIndex: {
+        map: "0",
+        overlay: "10",
+        ui: "20",
+        modal: "50",
+        toast: "100",
+      },
+      spacing: {
+        safe: "env(safe-area-inset-bottom)",
+      },
+      borderRadius: {
+        panel: "1.5rem",
+        control: "1rem",
+      },
+      boxShadow: {
+        panel: "0 10px 40px rgba(0,0,0,0.5)",
+        glow: "0 0 40px rgba(37,99,235,0.4)",
+      },
+    },
   },
   plugins: [],
-}
+};
 </file>
 
 <file path="tsconfig.json">

@@ -38,9 +38,9 @@ export default function Layout({
         
         {/* Logo */}
         <Link href="/dashboard" className="flex items-center gap-2">
-          <Shield className="w-7 h-7 text-indigo-600" />
+          <Navigation className="w-8 h-8 text-indigo-600" />
           <span className="text-lg font-semibold text-gray-900">
-            HospiNav Pro
+            Vazhikatti
           </span>
         </Link>
 
@@ -50,7 +50,7 @@ export default function Layout({
           <NavLink href="/upload">Upload</NavLink>
           <NavLink href="/editor">Editor</NavLink>
           <NavLink href="/navigate">Navigate</NavLink>
-          <NavLink href="/qr">QR</NavLink>
+          <NavLink href="/qr-generator">QR</NavLink>
         </div>
 
         {/* Right actions */}

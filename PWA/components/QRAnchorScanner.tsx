@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
 
 interface Props {
@@ -12,19 +12,20 @@ export default function QRAnchorScanner({ onDetect }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastScannedRef = useRef<string | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState<number>(0);
 
   useEffect(() => {
     let activeStream: MediaStream | null = null;
+    let isMounted = true; // Prevents state updates on unmounted component
 
     const scan = () => {
       const video = videoRef.current;
       if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
         if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
-
         const canvas = canvasRef.current;
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-
         const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -33,68 +34,78 @@ export default function QRAnchorScanner({ onDetect }: Props) {
 
           if (code && code.data !== lastScannedRef.current) {
             lastScannedRef.current = code.data;
-
+            let parsedData: any;
             try {
-              const parsedData = JSON.parse(code.data);
-              onDetect(parsedData);
+              parsedData = JSON.parse(code.data);
             } catch {
-              onDetect({ id: code.data });
+              try {
+                const url = new URL(code.data);
+                parsedData = {
+                  url: code.data,
+                  scanId: url.pathname.split("/").pop(),
+                };
+              } catch {
+                parsedData = { data: code.data };
+              }
             }
-
-            // 🔹 Stop camera immediately after detection
-            if (activeStream) {
-              activeStream.getTracks().forEach(track => track.stop());
-            }
-            if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
-
-            // 🔹 Reset last scanned after 3 seconds to allow rescanning
-            setTimeout(() => (lastScannedRef.current = null), 3000);
-            return; // exit scan loop
+            onDetect(parsedData);
+            return; // Stop scanning once detected
           }
         }
       }
-      animationFrameIdRef.current = requestAnimationFrame(scan);
+      if (isMounted) {
+        animationFrameIdRef.current = requestAnimationFrame(scan);
+      }
     };
 
     const startCamera = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+        
+        if (!isMounted) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
         activeStream = stream;
+        setCameraError(null);
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute("playsinline", "true");
-          await videoRef.current.play();
+          // Catch play() to prevent "AbortError" in rapid UI toggles
+          await videoRef.current.play().catch(() => {}); 
           scan();
         }
-      } catch (err) {
-        console.error("Camera access denied:", err);
+      } catch (err: any) {
+        if (isMounted) {
+          console.error("Camera access denied:", err);
+          setCameraError("Camera access denied. Use HTTPS and check permissions.");
+        }
       }
     };
 
     startCamera();
 
     return () => {
+      isMounted = false;
       if (activeStream) activeStream.getTracks().forEach(track => track.stop());
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
     };
-  }, [onDetect]);
+  }, [onDetect, retryKey]);
 
   return (
-    <div className="relative w-full h-full bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-800">
-      <video ref={videoRef} className="w-full h-full object-cover" muted />
-      
-      {/* Visual scanning overlay */}
-      <div className="absolute inset-0 border-[3px] border-blue-500/30 m-12 rounded-xl pointer-events-none">
-        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
-        
-        {/* Animated scanning line */}
-        <div className="absolute top-1/2 left-0 w-full h-[2px] bg-blue-500/50 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
-      </div>
+    <div className="relative w-full h-full bg-black">
+      {cameraError ? (
+        <div className="p-4 text-red-500 text-center flex flex-col items-center justify-center h-full gap-4">
+          <span>{cameraError}</span>
+          <button onClick={() => setRetryKey(k => k + 1)} className="bg-blue-600 px-4 py-2 rounded text-white">Retry</button>
+        </div>
+      ) : (
+        <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+      )}
     </div>
   );
 }
-

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Shield, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Shield,Navigation, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -67,7 +67,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
         <div className="text-center mb-8">
           <div className="w-12 h-12 bg-indigo-600 rounded-xl mx-auto flex items-center justify-center mb-4">
-            <Shield className="w-6 h-6 text-white" />
+            <Navigation className="w-6 h-6 text-white" />
           </div>
           <h1 className="text-2xl font-bold">Vazhikatti</h1>
           <p className="text-gray-600 mt-1">Sign in to your dashboard</p>

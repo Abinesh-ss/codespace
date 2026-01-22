@@ -4,10 +4,19 @@ import { useEffect, useState } from "react";
 import { Navigation, MapPin, Loader2 } from "lucide-react";
 
 interface Props {
+  hospitalId:string;
   startNodeId?: string;
   endNodeId?: string;
   floorId?: string;
 }
+
+console.log("NAV PAYLOAD:", {
+  hospitalId,
+  floorId,
+  startNodeId,
+  endNodeId,
+});
+
 
 export default function NavigationSteps({
   startNodeId,
@@ -29,7 +38,7 @@ export default function NavigationSteps({
         const res = await fetch("/api/navigation/shortest-path", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ floorId:floorId, startNodeId: startNodeId, endNodeId:endNodeId }),
+          body: JSON.stringify({ hospitalId, floorId:floorId, startNodeId: startNodeId, endNodeId:endNodeId }),
         });
 
         const data = await res.json();

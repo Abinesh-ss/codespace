@@ -5,25 +5,26 @@ import { protectRoute } from "@/lib/auth/middleware";
 
 async function handler(req: NextRequest, userId: string) {
   try {
+    /* ------------------ 1️⃣ Parse body ------------------ */
     const body = await req.json();
+    console.log("🧭 NAV PAYLOAD:", body);
+
     const { floorId, startNodeId, endNodeId, hospitalId } = body;
 
     if (!floorId || !startNodeId || !endNodeId || !hospitalId) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields", required: ["floorId", "startNodeId", "endNodeId", "hospitalId"] },
         { status: 400 }
       );
     }
 
-    /* 1️⃣ Fetch floor safely (by ID or level) */
+    /* ------------------ 2️⃣ Resolve floor ------------------ */
     const isUUID = typeof floorId === "string" && floorId.length > 10;
 
     const floorData = await prisma.floor.findFirst({
       where: {
         hospitalId,
-        ...(isUUID
-          ? { id: floorId }
-          : { level: Number(floorId) }),
+        ...(isUUID ? { id: floorId } : { level: Number(floorId) }),
       },
       select: {
         id: true,
@@ -38,55 +39,57 @@ async function handler(req: NextRequest, userId: string) {
       );
     }
 
-    const rawData = floorData.graphData as any;
-    const routes = rawData.routes || [];
+    /* ------------------ 3️⃣ Read graph ------------------ */
+    const rawGraph = floorData.graphData as any;
 
-    if (!Array.isArray(routes) || routes.length === 0) {
+    const routes = Array.isArray(rawGraph.routes) ? rawGraph.routes : [];
+
+    if (routes.length === 0) {
       return NextResponse.json(
-        { error: "No routes defined in graph data" },
+        { error: "No routes defined in floor graph" },
         { status: 404 }
       );
     }
 
-    /* 2️⃣ Build node set */
-    const validNodeIds = new Set<string>();
+    /* ------------------ 4️⃣ Build node index ------------------ */
+    const nodeIds = new Set<string>();
 
     routes.forEach((r: any) => {
-      if (r.from !== undefined) validNodeIds.add(String(r.from));
-      if (r.to !== undefined) validNodeIds.add(String(r.to));
+      if (r.from != null) nodeIds.add(String(r.from));
+      if (r.to != null) nodeIds.add(String(r.to));
     });
 
     const startId = String(startNodeId);
     const endId = String(endNodeId);
 
-    if (!validNodeIds.has(startId) || !validNodeIds.has(endId)) {
+    if (!nodeIds.has(startId) || !nodeIds.has(endId)) {
       return NextResponse.json(
         {
-          error: "Location not found on map graph",
+          error: "Start or destination node not found on this floor",
           details: {
-            startFound: validNodeIds.has(startId),
-            endFound: validNodeIds.has(endId),
+            startFound: nodeIds.has(startId),
+            endFound: nodeIds.has(endId),
           },
         },
         { status: 404 }
       );
     }
 
-    /* 3️⃣ Convert to A* compatible graph */
+    /* ------------------ 5️⃣ Build A* graph ------------------ */
     const edges = routes.map((r: any) => ({
       source: String(r.from),
       target: String(r.to),
-      weight: Number(r.distance) || 1,
+      weight: Number(r.distance) > 0 ? Number(r.distance) : 1,
     }));
 
-    const graphForAlgorithm = {
-      nodes: Array.from(validNodeIds).map((id) => ({ id })),
+    const graphForAStar = {
+      nodes: Array.from(nodeIds).map((id) => ({ id })),
       edges,
     };
 
-    /* 4️⃣ Run A* */
+    /* ------------------ 6️⃣ Run A* ------------------ */
     const path = calculateAStarPath(
-      graphForAlgorithm,
+      graphForAStar,
       startId,
       endId
     );
@@ -98,18 +101,25 @@ async function handler(req: NextRequest, userId: string) {
       );
     }
 
-    return NextResponse.json({ path });
+    /* ------------------ 7️⃣ Success ------------------ */
+    return NextResponse.json({
+      floorId: floorData.id,
+      path,
+    });
 
   } catch (error: any) {
     console.error("🔥 SHORTEST PATH ERROR:", error);
     return NextResponse.json(
-      { error: "Internal Server Error", details: error.message },
+      {
+        error: "Internal Server Error",
+        message: error?.message ?? "Unknown error",
+      },
       { status: 500 }
     );
   }
 }
 
-/* 🔐 Auth wrapper */
+/* ------------------ 🔐 Auth wrapper ------------------ */
 export const POST =
   process.env.NODE_ENV === "development"
     ? async (req: NextRequest) => handler(req, "dev-user")

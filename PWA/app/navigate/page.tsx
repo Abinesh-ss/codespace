@@ -20,7 +20,9 @@ interface POI {
   id: string;
   name: string;
   qrId: string;
+  nodeId: string;
   type?: string;
+  floorId: string; // ✅ floor-aware
 }
 
 export default function NavigatePage() {
@@ -52,7 +54,10 @@ export default function NavigatePage() {
 
     fetch(`/api/hospital/${hospitalId}/locations`)
       .then((r) => r.json())
-      .then((d) => setPoiList(Array.isArray(d) ? d : d.locations || []))
+      .then((d) => {
+        const pois: POI[] = Array.isArray(d) ? d : d.locations || [];
+        setPoiList(pois);
+      })
       .catch((err) => console.error("POI Fetch Error:", err));
   }, [hospitalId]);
 
@@ -66,7 +71,7 @@ export default function NavigatePage() {
     setSearchQuery("");
   };
 
-  /* ---------- QR DETECT (FIXED) ---------- */
+  /* ---------- QR DETECT ---------- */
   const handleQRDetect = async (data: any) => {
     if (scanLocked) return;
     setScanLocked(true);
@@ -79,7 +84,6 @@ export default function NavigatePage() {
         ? raw.split("/api/scan/")[1]
         : raw;
 
-      // This uses the Next.js rewrite proxy defined in next.config.js
       const res = await fetch(`/api/scan/${qrId}`);
       
       if (!res.ok) {
@@ -90,18 +94,20 @@ export default function NavigatePage() {
 
       const result = await res.json();
       setScannedNodeId(result.nodeId);
-      setFloorId(result.floorId);
+      setFloorId(result.floorId); // ✅ set correct floor from scan
       setCurrentLocation(result.locationName);
       setShowScanner(false);
     } catch (err) {
       console.error("QR scan network error:", err);
     } finally {
-      // Prevent multiple immediate triggers
       setTimeout(() => setScanLocked(false), 2000);
     }
   };
 
-  const filteredPOIs = poiList.filter((p) =>
+  /* ---------- FLOOR-AWARE POIs ---------- */
+  const floorPOIs = poiList.filter((p) => p.floorId === floorId);
+
+  const filteredPOIs = floorPOIs.filter((p) =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -194,7 +200,7 @@ export default function NavigatePage() {
                       <button
                         key={poi.id}
                         onClick={() => {
-                          setTargetNodeId(poi.qrId);
+                          setTargetNodeId(poi.nodeId);
                           setIsSearching(false);
                         }}
                         className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left transition-all active:scale-[0.99]"
@@ -223,6 +229,7 @@ export default function NavigatePage() {
               startNodeId={scannedNodeId}
               endNodeId={targetNodeId}
               floorId={floorId}
+              hospitalId={hospitalId!}
             />
           </div>
         </div>
@@ -230,3 +237,4 @@ export default function NavigatePage() {
     </main>
   );
 }
+

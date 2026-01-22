@@ -2,32 +2,34 @@
 
 import { useEffect, useState, useRef } from "react";
 import Layout from "@/components/Layout";
-import { 
-  MapPin, 
-  Plus, 
-  Trash2, 
-  MousePointer, 
-  ArrowRight, 
-  Save, 
-  Zap, 
-  Loader2 
+import {
+  MapPin,
+  Plus,
+  Trash2,
+  MousePointer,
+  ArrowRight,
+  Save,
+  Zap,
+  Loader2,
 } from "lucide-react";
 
 /* ---------- TYPES ---------- */
 interface POI {
-  id: number;
-  dbId?: string; 
+  id: number;                 // UI local id
+  nodeId: string;             // GLOBAL graph id (used for routing)
   name: string;
   type: string;
   x: number;
   y: number;
+  floorId: string;            // Floor identifier
 }
 
 interface Route {
   id: number;
-  from: number;
-  to: number;
+  from: string;               // nodeId
+  to: string;                 // nodeId
   distance: number;
+  floorId: string;
 }
 
 interface MapData {
@@ -36,6 +38,37 @@ interface MapData {
   url?: string;
 }
 
+/* ---------- GRAPH VALIDATOR ---------- */
+function validateGraph(pois: POI[], routes: Route[]): string[] {
+  const errors: string[] = [];
+  const nodeIds = new Set<string>();
+
+  for (const poi of pois) {
+    if (nodeIds.has(poi.nodeId)) errors.push(`Duplicate nodeId: ${poi.name}`);
+    nodeIds.add(poi.nodeId);
+  }
+
+  for (const route of routes) {
+    const from = pois.find((p) => p.nodeId === route.from);
+    const to = pois.find((p) => p.nodeId === route.to);
+
+    if (!from || !to) {
+      errors.push("Route has missing node");
+      continue;
+    }
+
+    const isConnector =
+      ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(to.type);
+
+    if (from.floorId !== to.floorId && !isConnector) {
+      errors.push(`Illegal cross-floor route: ${from.name} → ${to.name}`);
+    }
+  }
+
+  return errors;
+}
+
+/* ---------- COMPONENT ---------- */
 export default function Editor() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [hospitalId, setHospitalId] = useState<string | null>(null);
@@ -51,6 +84,7 @@ export default function Editor() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const draggingPOIRef = useRef<POI | null>(null);
 
+  /* ---------- POI TYPES ---------- */
   const poiTypes = [
     { value: "entrance", label: "Entrance" },
     { value: "exit", label: "Exit" },
@@ -58,167 +92,210 @@ export default function Editor() {
     { value: "service", label: "Service" },
     { value: "emergency", label: "Emergency" },
     { value: "general", label: "General" },
+    { value: "stairs", label: "Stairs" },
+    { value: "lift", label: "Lift" },
   ];
 
-  /* ---------- AUTH + FETCH EXISTING DATA ---------- */
+  /* ---------- AUTH + LOAD ---------- */
   useEffect(() => {
-    const checkAuthAndLoad = async () => {
+    const init = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`, { 
-          credentials: "include" 
-        });
+        const authRes = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`,
+          { credentials: "include" }
+        );
 
-        if (!res.ok) { window.location.href = "/login"; return; }
+        if (!authRes.ok) {
+          window.location.href = "/login";
+          return;
+        }
 
-        const userData = await res.json();
-        setHospitalId(userData.id);
+        const user = await authRes.json();
+        setHospitalId(user.id);
 
-        const urlParams = new URLSearchParams(window.location.search);
-        let mapId = urlParams.get("mapId");
-        const mapUrl = localStorage.getItem("uploadedMapUrl");
+        const params = new URLSearchParams(window.location.search);
+        const mapId = params.get("mapId") || crypto.randomUUID();
+        const mapUrl = localStorage.getItem("uploadedMapUrl") || "";
 
-        // 1. Load basic map info from LocalStorage/URL
         setSelectedMap({
-          id: mapId || "new-uuid-placeholder",
+          id: mapId,
           name: "Hospital Floor Plan",
-          url: mapUrl || "",
+          url: mapUrl,
         });
 
-        // 2. FETCH EXISTING GRAPH DATA FROM DB (If mapId is real)
-        if (mapId && mapId !== "new-uuid-placeholder") {
-          const floorRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor?hospitalId=${userData.id}`, {
-            credentials: "include"
-          });
-          const floors = await floorRes.json();
-          const currentFloor = floors.find((f: any) => f.id === mapId);
-          
-          if (currentFloor && currentFloor.graphData) {
-            setPointsOfInterest(currentFloor.graphData.pointsOfInterest || []);
-            setRoutes(currentFloor.graphData.routes || []);
-            // Update URL in case it's different in DB
-            if (currentFloor.imageUrl) {
-              setSelectedMap(prev => prev ? { ...prev, url: currentFloor.imageUrl } : null);
-            }
-          }
+        // Load existing floor data
+        const floorRes = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor?hospitalId=${user.id}`,
+          { credentials: "include" }
+        );
+
+        const floors = await floorRes.json();
+        const current = floors.find((f: any) => f.id === mapId);
+
+        if (current?.graphData) {
+          setPointsOfInterest(current.graphData.pointsOfInterest || []);
+          setRoutes(current.graphData.routes || []);
         }
 
         setIsAuthenticated(true);
       } catch (err) {
-        console.error("Initialization error:", err);
+        console.error(err);
         window.location.href = "/login";
       }
     };
 
-    checkAuthAndLoad();
+    init();
   }, []);
 
-  /* ---------- PERSISTENCE LOGIC ---------- */
+  /* ---------- SAVE ---------- */
   const handleSaveToDB = async () => {
     if (!hospitalId || !selectedMap) return;
+
+    const errors = validateGraph(pointsOfInterest, routes);
+    if (errors.length) {
+      alert("Fix these issues before saving:\n\n" + errors.join("\n"));
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          hospitalId,
-          mapId: selectedMap.id, // Current ID (placeholder or real)
-          name: selectedMap.name,
-          graphData: { pointsOfInterest, routes }
-        }),
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            hospitalId,
+            mapId: selectedMap.id,
+            name: selectedMap.name,
+            graphData: { pointsOfInterest, routes },
+          }),
+        }
+      );
 
-      if (!res.ok) throw new Error("Save failed");
-      const savedFloor = await res.json();
-      
-      // ✅ SYNC NEW ID: Update state and URL so next save is an UPDATE, not a CREATE
-      if (savedFloor.id) {
-        setSelectedMap(prev => prev ? { ...prev, id: savedFloor.id } : null);
-        window.history.replaceState(null, "", `/editor?mapId=${savedFloor.id}`);
+      const saved = await res.json();
+
+      if (saved.id) {
+        setSelectedMap((p) => (p ? { ...p, id: saved.id } : null));
+        window.history.replaceState(null, "", `/editor?mapId=${saved.id}`);
       }
-      
-      alert("Floor plan saved successfully!");
-      
+
+      alert("Floor saved successfully");
     } catch (err) {
-      console.error("Save failed:", err);
-      alert("Error saving data. Please check your connection.");
+      console.error(err);
+      alert("Save failed");
     } finally {
       setIsSaving(false);
     }
   };
 
+  /* ---------- AI IDENTIFY ---------- */
   const triggerAutoIdentify = async () => {
     if (!selectedMap?.id) return;
     setIsIdentifying(true);
+
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          action: "IDENTIFY_AUTO",
-          mapId: selectedMap.id,
-          graphData: { nodes: pointsOfInterest }
-        })
-      });
-      
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            action: "IDENTIFY_AUTO",
+            mapId: selectedMap.id,
+            graphData: { nodes: pointsOfInterest },
+          }),
+        }
+      );
+
       const autoPois = await res.json();
-      // Ensure we don't duplicate existing IDs if AI returns them
-      setPointsOfInterest(prev => [...prev, ...autoPois]);
-    } catch (err) {
-      console.error("AI Identification failed:", err);
+      setPointsOfInterest((p) => [...p, ...autoPois]);
     } finally {
       setIsIdentifying(false);
     }
   };
 
-  /* ---------- EDITOR ACTIONS ---------- */
+  /* ---------- POI CLICK ---------- */
   const handlePOIClick = (poi: POI, e: React.MouseEvent) => {
     e.stopPropagation();
+
     if (activeTool === "delete") {
-      setPointsOfInterest(prev => prev.filter(p => p.id !== poi.id));
-      setRoutes(prev => prev.filter(r => r.from !== poi.id && r.to !== poi.id));
+      setPointsOfInterest((p) => p.filter((x) => x.id !== poi.id));
+      setRoutes((r) =>
+        r.filter((x) => x.from !== poi.nodeId && x.to !== poi.nodeId)
+      );
       return;
     }
+
     if (activeTool === "route") {
       if (routeStartPOI === null) {
         setRouteStartPOI(poi.id);
-      } else if (routeStartPOI !== poi.id) {
-        const from = pointsOfInterest.find(p => p.id === routeStartPOI);
+      } else {
+        const from = pointsOfInterest.find((p) => p.id === routeStartPOI);
         if (!from) return;
-        setRoutes(prev => [
-          ...prev,
+
+        const isConnector =
+          ["stairs", "lift"].includes(from.type) ||
+          ["stairs", "lift"].includes(poi.type);
+
+        if (from.floorId !== poi.floorId && !isConnector) {
+          alert("Cross-floor routes require stairs or lift");
+          setRouteStartPOI(null);
+          return;
+        }
+
+        setRoutes((r) => [
+          ...r,
           {
             id: Date.now(),
-            from: from.id,
-            to: poi.id,
-            distance: Math.round(Math.hypot(poi.x - from.x, poi.y - from.y)),
+            from: from.nodeId,
+            to: poi.nodeId,
+            distance:
+              from.floorId === poi.floorId
+                ? Math.round(Math.hypot(poi.x - from.x, poi.y - from.y))
+                : 1,
+            floorId: from.floorId,
           },
         ]);
+
         setRouteStartPOI(null);
       }
       return;
     }
+
     setSelectedPOI(poi);
   };
 
+  /* ---------- DRAG ---------- */
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!draggingPOIRef.current || !canvasRef.current || activeTool !== "pointer") return;
+    if (!draggingPOIRef.current || !canvasRef.current) return;
+
     const rect = canvasRef.current.getBoundingClientRect();
-    setPointsOfInterest(prev =>
-      prev.map(p =>
-        p.id === draggingPOIRef.current!.id
-          ? { ...p, x: e.clientX - rect.left, y: e.clientY - rect.top }
-          : p
+    setPointsOfInterest((p) =>
+      p.map((x) =>
+        x.id === draggingPOIRef.current!.id
+          ? {
+              ...x,
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+            }
+          : x
       )
     );
   };
 
-  if (isAuthenticated === null) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
+  if (isAuthenticated === null)
+    return (
+      <div className="p-10 flex justify-center">
+        <Loader2 className="animate-spin text-indigo-600" />
+      </div>
+    );
 
+  /* ---------- RENDER ---------- */
   return (
-    <Layout showSidebar>
+    <Layout showSidebar={true}>
       <div className="flex flex-col h-screen bg-white">
         {/* HEADER */}
         <div className="h-16 border-b flex items-center justify-between px-8 bg-white z-30 shrink-0">
@@ -227,7 +304,7 @@ export default function Editor() {
             <span className="text-gray-300">|</span>
             <span className="text-sm text-gray-500 font-medium">{selectedMap?.name}</span>
           </div>
-          
+
           <div className="flex gap-3">
             <button onClick={triggerAutoIdentify} disabled={isIdentifying} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 text-sm font-bold hover:bg-amber-100 disabled:opacity-50 transition-all">
               {isIdentifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -241,11 +318,12 @@ export default function Editor() {
               onClick={() => window.location.href = `/qr-generator?hospitalId=${hospitalId}&mapId=${selectedMap?.id}`}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-black transition-all"
             >
-              QR GEN →
+              QR GEN
             </button>
           </div>
         </div>
 
+        {/* CANVAS & SIDEBAR */}
         <div className="flex flex-1 overflow-hidden">
           {/* TOOLBAR */}
           <div className="w-20 border-r flex flex-col items-center gap-6 py-8 bg-gray-50 shrink-0">
@@ -265,10 +343,12 @@ export default function Editor() {
                   const rect = canvasRef.current!.getBoundingClientRect();
                   setPointsOfInterest(prev => [...prev, { 
                     id: Date.now(), 
+                    nodeId: crypto.randomUUID(),
                     name: `Room ${prev.length + 1}`, 
                     type: "general", 
                     x: e.clientX - rect.left, 
-                    y: e.clientY - rect.top 
+                    y: e.clientY - rect.top,
+                    floorId: "1"
                   }]);
                 }
               }}
@@ -287,8 +367,8 @@ export default function Editor() {
 
               <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
                 {routes.map(route => {
-                  const from = pointsOfInterest.find(p => p.id === route.from);
-                  const to = pointsOfInterest.find(p => p.id === route.to);
+                  const from = pointsOfInterest.find(p => p.nodeId === route.from);
+                  const to = pointsOfInterest.find(p => p.nodeId === route.to);
                   if (!from || !to) return null;
                   return (
                     <line key={route.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#6366f1" strokeWidth="3" strokeDasharray="8,5" strokeLinecap="round" />
@@ -346,6 +426,7 @@ export default function Editor() {
   );
 }
 
+/* ---------- TOOL COMPONENT ---------- */
 function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; }) {
   return (
     <button onClick={onClick} className={`group relative p-4 rounded-2xl transition-all ${
@@ -358,3 +439,4 @@ function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: 
     </button>
   );
 }
+

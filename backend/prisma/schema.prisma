@@ -114,10 +114,13 @@ model Poi {
   y         Float
   map       Map      @relation(fields: [mapId], references: [id])
   mapId     String
-  nodeId    String
+  nodeId    String   @unique
+  floorId   String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([floorId])
 }
 
 model Route {

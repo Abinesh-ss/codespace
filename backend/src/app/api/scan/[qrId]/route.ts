@@ -37,7 +37,13 @@ export async function GET(
       include: {
         map: {
           select: {
-            hospitalId: true, // ✅ EXISTS
+            hospitalId: true,
+          },
+        },
+        floor: {
+          select: {
+            id: true,       // fetch the actual floor ID
+            level: true,    // optional: floor number
           },
         },
       },
@@ -54,7 +60,8 @@ export async function GET(
       {
         nodeId: poi.nodeId,
         locationName: poi.name,
-        floorId: "1", // ✅ TEMP FIX (no floor column yet)
+        floorId: poi.floor?.id || null, // ✅ use actual floor ID
+        floorLevel: poi.floor?.level || null, // optional
         hospitalId: poi.map?.hospitalId,
       },
       { status: 200, headers: cors(origin) }

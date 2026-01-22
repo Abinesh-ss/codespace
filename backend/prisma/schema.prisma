@@ -85,6 +85,7 @@ model Floor {
   name       String
   hospital   Hospital  @relation(fields: [hospitalId], references: [id])
   hospitalId String
+  level      Int?
   graphData  Json
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -113,6 +114,7 @@ model Poi {
   y         Float
   map       Map      @relation(fields: [mapId], references: [id])
   mapId     String
+  nodeId    String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

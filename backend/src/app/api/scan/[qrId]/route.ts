@@ -1,42 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
+/* ---------- CORS ---------- */
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { qrId: string } }
 ) {
   try {
+    const origin = req.headers.get("origin") || undefined;
     const { qrId } = params;
 
-    // 1. Find the POI by its unique qrId
-    const poiRecord = await prisma.poi.findUnique({
-      where: { qrId: qrId },
-      include: { 
-        map: true // This gets the associated map/floor info
-      }
-    });
-
-    if (!poiRecord) {
-      console.error(`[SCAN] qrId ${qrId} not found`);
+    if (!qrId) {
       return NextResponse.json(
-        { error: "Location QR not recognized" }, 
-        { status: 404 }
+        { error: "QR ID missing" },
+        { status: 400, headers: cors(origin) }
       );
     }
 
-    // 2. Return data in the exact format the PWA's ScanResponse interface expects
-    return NextResponse.json({
-      nodeId: poiRecord.id,           // Used for pathfinding start node
-      locationName: poiRecord.name,   // Displayed as "Current Position"
-      floorId: poiRecord.mapId,       // Links to the correct map/floor
-      hospitalId: poiRecord.map?.hospitalId || "hospital_1"
+    const poi = await prisma.poi.findUnique({
+      where: { qrId },
+      include: {
+        map: {
+          select: {
+            hospitalId: true, // ✅ EXISTS
+          },
+        },
+      },
     });
-    
-  } catch (err: any) {
-    console.error("Scan API Error:", err);
+
+    if (!poi) {
+      return NextResponse.json(
+        { error: "Location QR not recognized" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
     return NextResponse.json(
-      { error: "Internal Server Error", details: err.message }, 
+      {
+        nodeId: poi.nodeId,
+        locationName: poi.name,
+        floorId: "1", // ✅ TEMP FIX (no floor column yet)
+        hospitalId: poi.map?.hospitalId,
+      },
+      { status: 200, headers: cors(origin) }
+    );
+  } catch (err) {
+    console.error("Scan API Error:", err);
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
       { status: 500 }
     );
   }
 }
+

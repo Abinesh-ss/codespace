@@ -1,0 +1,2 @@
+-- AddForeignKey
+ALTER TABLE "Poi" ADD CONSTRAINT "Poi_floorId_fkey" FOREIGN KEY ("floorId") REFERENCES "Floor"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

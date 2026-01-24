@@ -87,6 +87,7 @@ model Floor {
   hospitalId String
   level      Int?
   graphData  Json
+  pois       Poi[]
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 }
@@ -115,6 +116,7 @@ model Poi {
   map       Map      @relation(fields: [mapId], references: [id])
   mapId     String
   nodeId    String   @unique
+  floor     Floor    @relation(fields: [floorId], references: [id])
   floorId   String
 
   createdAt DateTime @default(now())

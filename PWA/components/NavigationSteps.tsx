@@ -4,30 +4,31 @@ import { useEffect, useState } from "react";
 import { Navigation, MapPin, Loader2 } from "lucide-react";
 
 interface Props {
-  hospitalId:string;
+  hospitalId: string;
+  floorId?: string;
   startNodeId?: string;
   endNodeId?: string;
-  floorId?: string;
 }
 
-console.log("NAV PAYLOAD:", {
+export default function NavigationSteps({
   hospitalId,
   floorId,
   startNodeId,
   endNodeId,
-});
-
-
-export default function NavigationSteps({
-  startNodeId,
-  endNodeId,
-  floorId,
 }: Props) {
   const [steps, setSteps] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ✅ SAFE: inside component
+  console.log("NAV PAYLOAD:", {
+    hospitalId,
+    floorId,
+    startNodeId,
+    endNodeId,
+  });
+
   useEffect(() => {
-    if (!startNodeId || !endNodeId || !floorId) {
+    if (!hospitalId || !startNodeId || !endNodeId || !floorId) {
       setSteps([]);
       return;
     }
@@ -38,11 +39,18 @@ export default function NavigationSteps({
         const res = await fetch("/api/navigation/shortest-path", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hospitalId, floorId:floorId, startNodeId: startNodeId, endNodeId:endNodeId }),
+          body: JSON.stringify({
+            hospitalId,
+            floorId,
+            startNodeId,
+            endNodeId,
+          }),
         });
 
         const data = await res.json();
-        setSteps(Array.isArray(data?.instructions) ? data.instructions : []);
+        setSteps(
+          Array.isArray(data?.instructions) ? data.instructions : []
+        );
       } catch (err) {
         console.error("Navigation error:", err);
         setSteps([]);
@@ -52,14 +60,16 @@ export default function NavigationSteps({
     };
 
     fetchRoute();
-  }, [startNodeId, endNodeId, floorId]);
+  }, [hospitalId, floorId, startNodeId, endNodeId]);
 
   /* ---------- LOADING ---------- */
   if (loading) {
     return (
       <div className="flex items-center gap-3 px-2 py-3">
         <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-        <span className="text-sm text-slate-300">Calculating route…</span>
+        <span className="text-sm text-slate-300">
+          Calculating route…
+        </span>
       </div>
     );
   }
@@ -103,10 +113,18 @@ export default function NavigationSteps({
             <div className="flex flex-col items-center gap-1 pt-1">
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center
-                  ${isLast ? "bg-green-500/15 text-green-400" : "bg-blue-500/15 text-blue-400"}
+                  ${
+                    isLast
+                      ? "bg-green-500/15 text-green-400"
+                      : "bg-blue-500/15 text-blue-400"
+                  }
                 `}
               >
-                {isLast ? <MapPin size={18} /> : <Navigation size={18} />}
+                {isLast ? (
+                  <MapPin size={18} />
+                ) : (
+                  <Navigation size={18} />
+                )}
               </div>
               <span className="text-[9px] text-slate-500 font-semibold">
                 {isLast ? "END" : `STEP ${i + 1}`}

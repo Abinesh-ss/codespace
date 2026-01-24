@@ -36,7 +36,7 @@ export async function GET(
       );
     }
 
-    /* 2️⃣ Get existing Map (NO CREATE IN GET) */
+    /* 2️⃣ Get existing Map */
     const mapRecord = await prisma.map.findFirst({
       where: {
         hospitalId: floor.hospitalId,
@@ -57,38 +57,56 @@ export async function GET(
     const enrichedPOIs: any[] = [];
 
     for (const poi of points) {
-      if (
-        !poi?.name ||
-        poi.x === undefined ||
-        poi.y === undefined
-      ) {
+      if (!poi?.name || poi.x === undefined || poi.y === undefined) {
         continue;
       }
 
       /* 4️⃣ Check if POI already exists */
       let dbPoi = await prisma.poi.findFirst({
         where: {
-          mapId: mapRecord.id,
-          name: poi.name,
+          OR: [
+            poi.nodeId ? { nodeId: poi.nodeId } : undefined,
+            {
+              mapId: mapRecord.id,
+              name: poi.name,
+            },
+          ].filter(Boolean) as any,
         },
       });
 
       /* 5️⃣ Create POI if missing */
       if (!dbPoi) {
-        dbPoi = await prisma.poi.create({
-          data: {
-            name: poi.name,
-            type: poi.type || "general",
-            x: Number(poi.x),
-            y: Number(poi.y),
-            mapId: mapRecord.id,
-            qrId: crypto.randomUUID(),
+        const safeNodeId =
+          poi.nodeId && poi.nodeId.trim() !== ""
+            ? poi.nodeId
+            : crypto.randomUUID();
 
-            // ✅ REQUIRED FIELD (FIXED)
-            nodeId: poi.nodeId ?? crypto.randomUUID(),
-          },
-        });
+        try {
+          dbPoi = await prisma.poi.create({
+            data: {
+              name: poi.name,
+              type: poi.type || "general",
+              x: Number(poi.x),
+              y: Number(poi.y),
+              mapId: mapRecord.id,
+              floorId: floorId,
+              qrId: crypto.randomUUID(),
+              nodeId: safeNodeId,
+            },
+          });
+        } catch (e: any) {
+          // Handle unique constraint on nodeId
+          if (e.code === "P2002" && safeNodeId) {
+            dbPoi = await prisma.poi.findUnique({
+              where: { nodeId: safeNodeId },
+            });
+          } else {
+            throw e;
+          }
+        }
       }
+
+      if (!dbPoi) continue;
 
       enrichedPOIs.push({
         ...poi,

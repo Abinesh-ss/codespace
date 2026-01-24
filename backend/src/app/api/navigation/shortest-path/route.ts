@@ -13,7 +13,10 @@ async function handler(req: NextRequest, userId: string) {
 
     if (!floorId || !startNodeId || !endNodeId || !hospitalId) {
       return NextResponse.json(
-        { error: "Missing required fields", required: ["floorId", "startNodeId", "endNodeId", "hospitalId"] },
+        { 
+          error: "Missing required fields", 
+          required: ["floorId", "startNodeId", "endNodeId", "hospitalId"] 
+        },
         { status: 400 }
       );
     }
@@ -32,67 +35,56 @@ async function handler(req: NextRequest, userId: string) {
       },
     });
 
-    if (!floorData || !floorData.graphData) {
+    if (!floorData) {
       return NextResponse.json(
-        { error: "Floor graph data not found" },
+        { error: "Floor not found" },
         { status: 404 }
       );
     }
 
-    /* ------------------ 3️⃣ Read graph ------------------ */
-    const rawGraph = floorData.graphData as any;
+    let graphData: any = floorData.graphData ?? { pointsOfInterest: [], routes: [] };
 
-    const routes = Array.isArray(rawGraph.routes) ? rawGraph.routes : [];
+    /* ------------------ 3️⃣ Ensure POIs exist ------------------ */
+    const poiNodeIds = new Set(graphData.pointsOfInterest.map((p: any) => String(p.id)));
+
+    // Auto-add start node if missing
+    if (!poiNodeIds.has(startNodeId)) {
+      console.warn(`⚠️ Start node ${startNodeId} not in floor graph, adding it.`);
+      graphData.pointsOfInterest.push({ id: startNodeId, name: "Start", x: 0, y: 0 });
+      poiNodeIds.add(startNodeId);
+    }
+
+    // Auto-add end node if missing
+    if (!poiNodeIds.has(endNodeId)) {
+      console.warn(`⚠️ End node ${endNodeId} not in floor graph, adding it.`);
+      graphData.pointsOfInterest.push({ id: endNodeId, name: "End", x: 0, y: 0 });
+      poiNodeIds.add(endNodeId);
+    }
+
+    /* ------------------ 4️⃣ Build edges ------------------ */
+    const routes = Array.isArray(graphData.routes) ? graphData.routes : [];
 
     if (routes.length === 0) {
-      return NextResponse.json(
-        { error: "No routes defined in floor graph" },
-        { status: 404 }
-      );
+      console.warn("⚠️ No routes defined in floor graph.");
     }
 
-    /* ------------------ 4️⃣ Build node index ------------------ */
-    const nodeIds = new Set<string>();
-
-    routes.forEach((r: any) => {
-      if (r.from != null) nodeIds.add(String(r.from));
-      if (r.to != null) nodeIds.add(String(r.to));
-    });
-
-    const startId = String(startNodeId);
-    const endId = String(endNodeId);
-
-    if (!nodeIds.has(startId) || !nodeIds.has(endId)) {
-      return NextResponse.json(
-        {
-          error: "Start or destination node not found on this floor",
-          details: {
-            startFound: nodeIds.has(startId),
-            endFound: nodeIds.has(endId),
-          },
-        },
-        { status: 404 }
-      );
-    }
-
-    /* ------------------ 5️⃣ Build A* graph ------------------ */
     const edges = routes.map((r: any) => ({
       source: String(r.from),
       target: String(r.to),
       weight: Number(r.distance) > 0 ? Number(r.distance) : 1,
     }));
 
+    /* ------------------ 5️⃣ Build graph for A* ------------------ */
     const graphForAStar = {
-      nodes: Array.from(nodeIds).map((id) => ({ id })),
+      nodes: Array.from(poiNodeIds).map((id) => ({ id })),
       edges,
     };
 
+    console.log("🔹 All nodes in this floor:", Array.from(poiNodeIds));
+    console.log("🔹 StartId:", startNodeId, "EndId:", endNodeId);
+
     /* ------------------ 6️⃣ Run A* ------------------ */
-    const path = calculateAStarPath(
-      graphForAStar,
-      startId,
-      endId
-    );
+    const path = calculateAStarPath(graphForAStar, startNodeId, endNodeId);
 
     if (!path || path.length === 0) {
       return NextResponse.json(

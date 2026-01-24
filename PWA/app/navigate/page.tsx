@@ -22,7 +22,7 @@ interface POI {
   qrId: string;
   nodeId: string;
   type?: string;
-  floorId: string; // ✅ floor-aware
+  floorId: string;
 }
 
 export default function NavigatePage() {
@@ -48,14 +48,30 @@ export default function NavigatePage() {
       .catch((err) => console.error("Hospital Fetch Error:", err));
   }, []);
 
-  /* ---------- FETCH POIs ---------- */
+  /* ---------- FETCH POIs (FIXED, LOGIC UNCHANGED) ---------- */
   useEffect(() => {
     if (!hospitalId) return;
 
     fetch(`/api/hospital/${hospitalId}/locations`)
       .then((r) => r.json())
       .then((d) => {
-        const pois: POI[] = Array.isArray(d) ? d : d.locations || [];
+        if (!d?.locations) {
+          setPoiList([]);
+          return;
+        }
+
+        // ✅ ONLY FIX: flatten locations[].pois → POI[]
+        const pois: POI[] = d.locations.flatMap((loc: any) =>
+          loc.pois.map((poi: any) => ({
+            id: poi.id,
+            name: poi.name,
+            qrId: poi.qrId,
+            nodeId: poi.nodeId,
+            type: poi.type,
+            floorId: poi.floor?.level?.toString() ?? "1",
+          }))
+        );
+
         setPoiList(pois);
       })
       .catch((err) => console.error("POI Fetch Error:", err));
@@ -85,7 +101,7 @@ export default function NavigatePage() {
         : raw;
 
       const res = await fetch(`/api/scan/${qrId}`);
-      
+
       if (!res.ok) {
         const errorData = await res.json();
         console.error("Scan API Error:", errorData);
@@ -94,7 +110,7 @@ export default function NavigatePage() {
 
       const result = await res.json();
       setScannedNodeId(result.nodeId);
-      setFloorId(result.floorId); // ✅ set correct floor from scan
+      setFloorId(result.floorId);
       setCurrentLocation(result.locationName);
       setShowScanner(false);
     } catch (err) {
@@ -123,7 +139,10 @@ export default function NavigatePage() {
           Vazhikatti
         </div>
         <div className="flex justify-end">
-          <button onClick={handleReset} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+          <button
+            onClick={handleReset}
+            className="p-2 hover:bg-white/5 rounded-full transition-colors"
+          >
             <RotateCcw size={18} />
           </button>
         </div>
@@ -145,10 +164,15 @@ export default function NavigatePage() {
           <>
             <div className="text-center space-y-3">
               <div className="relative inline-block">
-                <MapPin size={48} className="mx-auto text-blue-500 animate-pulse" />
+                <MapPin
+                  size={48}
+                  className="mx-auto text-blue-500 animate-pulse"
+                />
                 <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
               </div>
-              <h2 className="text-2xl font-bold tracking-tight">{currentLocation}</h2>
+              <h2 className="text-2xl font-bold tracking-tight">
+                {currentLocation}
+              </h2>
               <LiveLocation />
             </div>
 
@@ -170,7 +194,10 @@ export default function NavigatePage() {
                 className="w-full p-5 bg-slate-900/50 border border-white/5 rounded-2xl flex justify-between items-center hover:border-blue-500/50 transition-colors group"
               >
                 <div className="flex items-center gap-3">
-                  <Search size={20} className="text-slate-400 group-hover:text-blue-400" />
+                  <Search
+                    size={20}
+                    className="text-slate-400 group-hover:text-blue-400"
+                  />
                   <span className="text-slate-300">Where to?</span>
                 </div>
                 <ChevronRight size={20} className="text-slate-500" />
@@ -185,15 +212,18 @@ export default function NavigatePage() {
                     className="w-full p-4 pl-12 rounded-xl bg-slate-900 border border-blue-500/30 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                     placeholder="Search department..."
                   />
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <button 
+                  <Search
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                    size={18}
+                  />
+                  <button
                     onClick={() => setIsSearching(false)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
                   >
                     <X size={18} />
                   </button>
                 </div>
-                
+
                 <div className="mt-3 space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
                   {filteredPOIs.length > 0 ? (
                     filteredPOIs.map((poi) => (
@@ -205,8 +235,14 @@ export default function NavigatePage() {
                         }}
                         className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left transition-all active:scale-[0.99]"
                       >
-                        <div className="font-medium text-slate-100">{poi.name}</div>
-                        {poi.type && <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">{poi.type}</div>}
+                        <div className="font-medium text-slate-100">
+                          {poi.name}
+                        </div>
+                        {poi.type && (
+                          <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">
+                            {poi.type}
+                          </div>
+                        )}
                       </button>
                     ))
                   ) : (
@@ -225,7 +261,7 @@ export default function NavigatePage() {
       {targetNodeId && scannedNodeId && (
         <div className="border-t border-white/5 p-4 bg-slate-900/90 backdrop-blur-xl animate-in slide-in-from-bottom duration-500">
           <div className="max-w-md mx-auto">
-             <NavigationSteps
+            <NavigationSteps
               startNodeId={scannedNodeId}
               endNodeId={targetNodeId}
               floorId={floorId}

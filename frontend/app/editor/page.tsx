@@ -80,6 +80,7 @@ export default function Editor() {
   const [routeStartPOI, setRouteStartPOI] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isIdentifying, setIsIdentifying] = useState(false);
+  const [activeFloor, setActiveFloor] = useState<number>(1);
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const draggingPOIRef = useRef<POI | null>(null);
@@ -305,7 +306,19 @@ export default function Editor() {
             <span className="text-sm text-gray-500 font-medium">{selectedMap?.name}</span>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            <div className="flex items-center gap-2 mr-2">
+    <span className="text-xs font-bold text-gray-400 uppercase">
+      Floor
+    </span>
+    <input
+      type="number"
+      value={activeFloor}
+      onChange={(e) => setActiveFloor(Number(e.target.value))}
+      className="w-16 px-2 py-1 text-sm font-bold border rounded-md text-center"
+    />
+  </div>
+
             <button onClick={triggerAutoIdentify} disabled={isIdentifying} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 text-sm font-bold hover:bg-amber-100 disabled:opacity-50 transition-all">
               {isIdentifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               AI SCAN
@@ -348,7 +361,7 @@ export default function Editor() {
                     type: "general", 
                     x: e.clientX - rect.left, 
                     y: e.clientY - rect.top,
-                    floorId: "1"
+                    floorId: String(activeFloor)
                   }]);
                 }
               }}
@@ -376,7 +389,7 @@ export default function Editor() {
                 })}
               </svg>
 
-              {pointsOfInterest.map(poi => (
+              {pointsOfInterest.filter(p => p.floorId === String(activeFloor)).map(poi => (
                 <div
                   key={poi.id}
                   className={`absolute -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer transition-all ${
@@ -413,9 +426,28 @@ export default function Editor() {
                     <input className="font-bold text-sm bg-transparent outline-none border-b border-transparent focus:border-indigo-400" value={poi.name} onChange={(e) => setPointsOfInterest(prev => prev.map(p => p.id === poi.id ? {...p, name: e.target.value} : p))} />
                     <Trash2 size={14} className="text-gray-300 hover:text-red-500" onClick={() => setPointsOfInterest(prev => prev.filter(p => p.id !== poi.id))} />
                   </div>
-                  <select className="text-[10px] uppercase font-bold text-gray-400 bg-transparent outline-none w-full" value={poi.type} onChange={(e) => setPointsOfInterest(prev => prev.map(p => p.id === poi.id ? {...p, type: e.target.value} : p))}>
-                    {poiTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
+                  <select
+  className="text-[10px] uppercase font-bold text-gray-400 bg-transparent outline-none w-full"
+  value={poi.type}
+  onChange={(e) =>
+    setPointsOfInterest(prev =>
+      prev.map(p =>
+        p.id === poi.id ? { ...p, type: e.target.value } : p
+      )
+    )
+  }
+>
+  {poiTypes.map(t => (
+    <option key={t.value} value={t.value}>
+      {t.label}
+    </option>
+  ))}
+</select>
+
+<div className="mt-1 text-[9px] font-bold text-gray-400 uppercase">
+  Floor: {poi.floorId}
+</div>
+
                 </div>
               ))}
             </div>

@@ -1,119 +1,210 @@
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import { calculateAStarPath } from "@/lib/services/a-star.service";
-import { protectRoute } from "@/lib/auth/middleware";
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
 
-async function handler(req: NextRequest, userId: string) {
-  try {
-    /* ------------------ 1️⃣ Parse body ------------------ */
-    const body = await req.json();
-    console.log("🧭 NAV PAYLOAD:", body);
+/* ---------------- UPDATED TYPES ---------------- */
 
-    const { floorId, startNodeId, endNodeId, hospitalId } = body;
-
-    if (!floorId || !startNodeId || !endNodeId || !hospitalId) {
-      return NextResponse.json(
-        { 
-          error: "Missing required fields", 
-          required: ["floorId", "startNodeId", "endNodeId", "hospitalId"] 
-        },
-        { status: 400 }
-      );
-    }
-
-    /* ------------------ 2️⃣ Resolve floor ------------------ */
-    const isUUID = typeof floorId === "string" && floorId.length > 10;
-
-    const floorData = await prisma.floor.findFirst({
-      where: {
-        hospitalId,
-        ...(isUUID ? { id: floorId } : { level: Number(floorId) }),
-      },
-      select: {
-        id: true,
-        graphData: true,
-      },
-    });
-
-    if (!floorData) {
-      return NextResponse.json(
-        { error: "Floor not found" },
-        { status: 404 }
-      );
-    }
-
-    let graphData: any = floorData.graphData ?? { pointsOfInterest: [], routes: [] };
-
-    /* ------------------ 3️⃣ Ensure POIs exist ------------------ */
-    const poiNodeIds = new Set(graphData.pointsOfInterest.map((p: any) => String(p.id)));
-
-    // Auto-add start node if missing
-    if (!poiNodeIds.has(startNodeId)) {
-      console.warn(`⚠️ Start node ${startNodeId} not in floor graph, adding it.`);
-      graphData.pointsOfInterest.push({ id: startNodeId, name: "Start", x: 0, y: 0 });
-      poiNodeIds.add(startNodeId);
-    }
-
-    // Auto-add end node if missing
-    if (!poiNodeIds.has(endNodeId)) {
-      console.warn(`⚠️ End node ${endNodeId} not in floor graph, adding it.`);
-      graphData.pointsOfInterest.push({ id: endNodeId, name: "End", x: 0, y: 0 });
-      poiNodeIds.add(endNodeId);
-    }
-
-    /* ------------------ 4️⃣ Build edges ------------------ */
-    const routes = Array.isArray(graphData.routes) ? graphData.routes : [];
-
-    if (routes.length === 0) {
-      console.warn("⚠️ No routes defined in floor graph.");
-    }
-
-    const edges = routes.map((r: any) => ({
-      source: String(r.from),
-      target: String(r.to),
-      weight: Number(r.distance) > 0 ? Number(r.distance) : 1,
-    }));
-
-    /* ------------------ 5️⃣ Build graph for A* ------------------ */
-    const graphForAStar = {
-      nodes: Array.from(poiNodeIds).map((id) => ({ id })),
-      edges,
-    };
-
-    console.log("🔹 All nodes in this floor:", Array.from(poiNodeIds));
-    console.log("🔹 StartId:", startNodeId, "EndId:", endNodeId);
-
-    /* ------------------ 6️⃣ Run A* ------------------ */
-    const path = calculateAStarPath(graphForAStar, startNodeId, endNodeId);
-
-    if (!path || path.length === 0) {
-      return NextResponse.json(
-        { error: "No path found between nodes" },
-        { status: 404 }
-      );
-    }
-
-    /* ------------------ 7️⃣ Success ------------------ */
-    return NextResponse.json({
-      floorId: floorData.id,
-      path,
-    });
-
-  } catch (error: any) {
-    console.error("🔥 SHORTEST PATH ERROR:", error);
-    return NextResponse.json(
-      {
-        error: "Internal Server Error",
-        message: error?.message ?? "Unknown error",
-      },
-      { status: 500 }
-    );
-  }
+type GraphPOI = {
+  nodeId: string
+  x: number
+  y: number
+  name?: string
 }
 
-/* ------------------ 🔐 Auth wrapper ------------------ */
-export const POST =
-  process.env.NODE_ENV === "development"
-    ? async (req: NextRequest) => handler(req, "dev-user")
-    : protectRoute(handler);
+type GraphRoute = {
+  from: string
+  to: string
+  distance: number // Map this to 'weight' for Dijkstra
+}
 
+type GraphData = {
+  pointsOfInterest: GraphPOI[]
+  routes: GraphRoute[]
+}
+
+type GraphEdge = {
+  from: string
+  to: string
+  weight: number
+}
+
+/* ---------------- HELPERS ---------------- */
+
+function dijkstra(
+  nodes: string[],
+  edges: GraphEdge[],
+  start: string,
+  end: string
+): string[] | null {
+  const distances: Record<string, number> = {}
+  const previous: Record<string, string | null> = {}
+  const unvisited = new Set(nodes)
+
+  nodes.forEach(n => {
+    distances[n] = Infinity
+    previous[n] = null
+  })
+
+  distances[start] = 0
+
+  while (unvisited.size > 0) {
+    const current = [...unvisited].reduce((a, b) =>
+      distances[a] < distances[b] ? a : b
+    )
+
+    if (distances[current] === Infinity) break 
+    if (current === end) break
+    unvisited.delete(current)
+
+    const neighbors = edges.filter(
+      e => e.from === current || e.to === current
+    )
+
+    for (const edge of neighbors) {
+      const neighbor = edge.from === current ? edge.to : edge.from
+      if (!unvisited.has(neighbor)) continue
+
+      const alt = distances[current] + (edge.weight ?? 1)
+      if (alt < distances[neighbor]) {
+        distances[neighbor] = alt
+        previous[neighbor] = current
+      }
+    }
+  }
+
+  const path: string[] = []
+  let curr: string | null = end
+
+  while (curr) {
+    path.unshift(curr)
+    curr = previous[curr]
+  }
+
+  return path[0] === start ? path : null
+}
+
+/* ---------------- ROUTE ---------------- */
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    console.log("🧭 NAV PAYLOAD:", body)
+
+    const { hospitalId, floorId, startNodeId, endNodeId } = body
+
+    if (!hospitalId || !floorId || !startNodeId || !endNodeId) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      )
+    }
+
+    /* -------- FETCH FLOOR GRAPH -------- */
+
+    const floor = await prisma.floor.findFirst({
+      where: {
+        hospitalId,
+        level: Number(floorId)
+      },
+      select: {
+        graphData: true
+      }
+    })
+
+    if (!floor || !floor.graphData) {
+      return NextResponse.json(
+        { error: "Graph data not found for floor" },
+        { status: 400 }
+      )
+    }
+
+    // Cast the JSON to our updated GraphData structure
+    const graph = floor.graphData as unknown as GraphData
+
+    console.log("🧩 GRAPH EXTRACTED:", graph)
+
+    /* -------- GRAPH VALIDATION -------- */
+
+    if (
+      !Array.isArray(graph.pointsOfInterest) ||
+      !Array.isArray(graph.routes)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid graph structure in database" },
+        { status: 400 }
+      )
+    }
+
+    const nodeIds = graph.pointsOfInterest.map(p => p.nodeId)
+
+    // Log check for debugging node existence
+    if (!nodeIds.includes(startNodeId)) {
+      console.error(`❌ Start node ${startNodeId} not found in graph nodes:`, nodeIds)
+      return NextResponse.json({ error: "Start node not in graph" }, { status: 400 })
+    }
+
+    if (!nodeIds.includes(endNodeId)) {
+      console.error(`❌ End node ${endNodeId} not found in graph nodes:`, nodeIds)
+      return NextResponse.json({ error: "End node not in graph" }, { status: 400 })
+    }
+
+    /* -------- SHORTEST PATH -------- */
+
+    // Map DB 'routes' to 'GraphEdge' format
+    const edges: GraphEdge[] = graph.routes.map(r => ({
+      from: r.from,
+      to: r.to,
+      weight: r.distance || 1
+    }))
+
+    const path = dijkstra(
+      nodeIds,
+      edges,
+      startNodeId,
+      endNodeId
+    )
+
+    if (!path) {
+      return NextResponse.json(
+        { error: "No path found between nodes" },
+        { status: 400 }
+      )
+    }
+
+    /* -------- FETCH POI COORDINATES -------- */
+
+    const pois = await prisma.poi.findMany({
+      where: {
+        nodeId: { in: path }
+      },
+      select: {
+        nodeId: true,
+        x: true,
+        y: true
+      }
+    })
+
+    const pathWithCoords = path.map(nodeId => {
+      // First try to find in the POI table, fallback to the graphData JSON
+      const poiRecord = pois.find(p => p.nodeId === nodeId)
+      const graphPoi = graph.pointsOfInterest.find(p => p.nodeId === nodeId)
+      
+      return {
+        nodeId,
+        x: poiRecord?.x ?? graphPoi?.x ?? null,
+        y: poiRecord?.y ?? graphPoi?.y ?? null
+      }
+    })
+
+    return NextResponse.json({
+      success: true,
+      path: pathWithCoords
+    })
+
+  } catch (err) {
+    console.error("❌ NAV ERROR:", err)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}

@@ -1,8 +1,5 @@
 {
   "image": "mcr.microsoft.com/devcontainers/universal:2",
-  "features": {
-    "ghcr.io/devcontainers/features/desktop-lite:1": {}
-  },
   "customizations": {
     "codespaces": {
       "openFiles": ["README.md"]

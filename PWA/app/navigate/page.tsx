@@ -8,6 +8,7 @@ import {
   X,
   Camera,
   ChevronRight,
+  AlertCircle,
 } from "lucide-react";
 
 import QRAnchorScanner from "@/components/QRAnchorScanner";
@@ -29,6 +30,7 @@ export default function NavigatePage() {
   const [isSearching, setIsSearching] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const [hospitalId, setHospitalId] = useState<string | null>(null);
   const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
@@ -48,7 +50,7 @@ export default function NavigatePage() {
       .catch((err) => console.error("Hospital Fetch Error:", err));
   }, []);
 
-  /* ---------- FETCH POIs (FIXED, LOGIC UNCHANGED) ---------- */
+  /* ---------- FETCH POIs ---------- */
   useEffect(() => {
     if (!hospitalId) return;
 
@@ -60,7 +62,6 @@ export default function NavigatePage() {
           return;
         }
 
-        // ✅ ONLY FIX: flatten locations[].pois → POI[]
         const pois: POI[] = d.locations.flatMap((loc: any) =>
           loc.pois.map((poi: any) => ({
             id: poi.id,
@@ -85,12 +86,14 @@ export default function NavigatePage() {
     setShowScanner(false);
     setIsSearching(false);
     setSearchQuery("");
+    setError(null);
   };
 
   /* ---------- QR DETECT ---------- */
   const handleQRDetect = async (data: any) => {
     if (scanLocked) return;
     setScanLocked(true);
+    setError(null);
 
     try {
       const raw = typeof data === "string" ? data : data?.data || data?.url;
@@ -103,8 +106,7 @@ export default function NavigatePage() {
       const res = await fetch(`/api/scan/${qrId}`);
 
       if (!res.ok) {
-        const errorData = await res.json();
-        console.error("Scan API Error:", errorData);
+        setError("Invalid or expired QR code. Please scan a current marker.");
         return;
       }
 
@@ -114,6 +116,7 @@ export default function NavigatePage() {
       setCurrentLocation(result.locationName);
       setShowScanner(false);
     } catch (err) {
+      setError("Network error. Please try scanning again.");
       console.error("QR scan network error:", err);
     } finally {
       setTimeout(() => setScanLocked(false), 2000);
@@ -127,7 +130,6 @@ export default function NavigatePage() {
     p.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  /* ================== JSX ================== */
   return (
     <main className="h-screen w-full bg-[#020617] text-slate-100 flex flex-col">
       <FloorDetector onFloor={(f) => setFloorId(f.toString())} />
@@ -150,6 +152,14 @@ export default function NavigatePage() {
 
       {/* CONTENT */}
       <div className="flex-1 overflow-y-auto px-6 py-10 max-w-md mx-auto w-full">
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-3 text-red-400 text-sm animate-in fade-in zoom-in duration-300">
+            <AlertCircle size={18} />
+            <p>{error}</p>
+          </div>
+        )}
+
         {showScanner ? (
           <div className="relative aspect-square rounded-3xl overflow-hidden shadow-2xl shadow-blue-500/10 border border-white/10">
             <QRAnchorScanner onDetect={handleQRDetect} />
@@ -166,9 +176,9 @@ export default function NavigatePage() {
               <div className="relative inline-block">
                 <MapPin
                   size={48}
-                  className="mx-auto text-blue-500 animate-pulse"
+                  className={`mx-auto transition-colors ${scannedNodeId ? 'text-blue-500' : 'text-slate-600 animate-pulse'}`}
                 />
-                <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
+                {scannedNodeId && <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />}
               </div>
               <h2 className="text-2xl font-bold tracking-tight">
                 {currentLocation}
@@ -178,15 +188,20 @@ export default function NavigatePage() {
 
             <button
               onClick={() => setShowScanner(true)}
-              className="mt-8 w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-full font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+              className={`mt-8 w-full py-4 transition-all rounded-full font-bold flex items-center justify-center gap-2 shadow-lg ${
+                scannedNodeId 
+                  ? "bg-slate-800 border border-white/10 hover:bg-slate-700" 
+                  : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20"
+              }`}
             >
               <Camera size={20} />
-              <span>Open Scanner</span>
+              <span>{scannedNodeId ? "Update Location" : "Scan QR to Begin"}</span>
             </button>
           </>
         )}
 
-        {!targetNodeId && !showScanner && (
+        {/* Search UI only visible after scan */}
+        {scannedNodeId && !targetNodeId && !showScanner && (
           <div className="mt-8 space-y-4">
             {!isSearching ? (
               <button
@@ -194,10 +209,7 @@ export default function NavigatePage() {
                 className="w-full p-5 bg-slate-900/50 border border-white/5 rounded-2xl flex justify-between items-center hover:border-blue-500/50 transition-colors group"
               >
                 <div className="flex items-center gap-3">
-                  <Search
-                    size={20}
-                    className="text-slate-400 group-hover:text-blue-400"
-                  />
+                  <Search size={20} className="text-slate-400 group-hover:text-blue-400" />
                   <span className="text-slate-300">Where to?</span>
                 </div>
                 <ChevronRight size={20} className="text-slate-500" />
@@ -212,44 +224,23 @@ export default function NavigatePage() {
                     className="w-full p-4 pl-12 rounded-xl bg-slate-900 border border-blue-500/30 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                     placeholder="Search department..."
                   />
-                  <Search
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
-                    size={18}
-                  />
-                  <button
-                    onClick={() => setIsSearching(false)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                  >
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                  <button onClick={() => setIsSearching(false)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
                     <X size={18} />
                   </button>
                 </div>
 
-                <div className="mt-3 space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                  {filteredPOIs.length > 0 ? (
-                    filteredPOIs.map((poi) => (
-                      <button
-                        key={poi.id}
-                        onClick={() => {
-                          setTargetNodeId(poi.nodeId);
-                          setIsSearching(false);
-                        }}
-                        className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left transition-all active:scale-[0.99]"
-                      >
-                        <div className="font-medium text-slate-100">
-                          {poi.name}
-                        </div>
-                        {poi.type && (
-                          <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">
-                            {poi.type}
-                          </div>
-                        )}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-slate-500 text-sm">
-                      No locations found
-                    </div>
-                  )}
+                <div className="mt-3 space-y-2 max-h-[40vh] overflow-y-auto pr-2">
+                  {filteredPOIs.map((poi) => (
+                    <button
+                      key={poi.id}
+                      onClick={() => setTargetNodeId(poi.nodeId)}
+                      className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left"
+                    >
+                      <div className="font-medium text-slate-100">{poi.name}</div>
+                      {poi.type && <div className="text-xs text-slate-500 uppercase mt-1">{poi.type}</div>}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -266,6 +257,10 @@ export default function NavigatePage() {
               endNodeId={targetNodeId}
               floorId={floorId}
               hospitalId={hospitalId!}
+              onError={(msg) => {
+                setError(msg);
+                setTargetNodeId(undefined); // Reset target on nav failure
+              }}
             />
           </div>
         </div>
@@ -273,4 +268,3 @@ export default function NavigatePage() {
     </main>
   );
 }
-

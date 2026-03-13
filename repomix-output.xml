@@ -61,6 +61,10 @@ backend/
         migration.sql
       20260121175728_add_nodeid_to_poi/
         migration.sql
+      20260122194825_add_floor_id_to_poi/
+        migration.sql
+      20260123182001_add_poi_floor_relation/
+        migration.sql
       migration_lock.toml
     schema.prisma
   src/
@@ -136,6 +140,7 @@ backend/
         credit.service.ts
         subscription.service.ts
       cors.ts
+      prisma.ts
     routes/
       auth.ts
     types/
@@ -198,128 +203,6 @@ frontend/
   tailwind.config.js
   todo.md
   tsconfig.json
-mobile/
-  android/
-    app/
-      src/
-        debug/
-          AndroidManifest.xml
-        debugOptimized/
-          AndroidManifest.xml
-        main/
-          java/
-            com/
-              vazhikatti/
-                app/
-                  MainActivity.kt
-                  MainApplication.kt
-          res/
-            drawable/
-              ic_launcher_background.xml
-              rn_edit_text_material.xml
-            drawable-hdpi/
-              splashscreen_logo.png
-            drawable-mdpi/
-              splashscreen_logo.png
-            drawable-xhdpi/
-              splashscreen_logo.png
-            drawable-xxhdpi/
-              splashscreen_logo.png
-            drawable-xxxhdpi/
-              splashscreen_logo.png
-            mipmap-anydpi-v26/
-              ic_launcher_round.xml
-              ic_launcher.xml
-            mipmap-hdpi/
-              ic_launcher_foreground.webp
-              ic_launcher_round.webp
-              ic_launcher.webp
-            mipmap-mdpi/
-              ic_launcher_foreground.webp
-              ic_launcher_round.webp
-              ic_launcher.webp
-            mipmap-xhdpi/
-              ic_launcher_foreground.webp
-              ic_launcher_round.webp
-              ic_launcher.webp
-            mipmap-xxhdpi/
-              ic_launcher_foreground.webp
-              ic_launcher_round.webp
-              ic_launcher.webp
-            mipmap-xxxhdpi/
-              ic_launcher_foreground.webp
-              ic_launcher_round.webp
-              ic_launcher.webp
-            values/
-              colors.xml
-              strings.xml
-              styles.xml
-            values-night/
-              colors.xml
-          AndroidManifest.xml
-      build.gradle
-      debug.keystore
-      proguard-rules.pro
-    gradle/
-      wrapper/
-        gradle-wrapper.jar
-        gradle-wrapper.properties
-    .gitignore
-    build.gradle
-    gradle.properties
-    gradlew
-    gradlew.bat
-    settings.gradle
-  assets/
-    adaptive-icon.png
-    favicon.png
-    icon.png
-    splash.png
-  ios/
-    UngalVazhikatti/
-      Images.xcassets/
-        AppIcon.appiconset/
-          App-Icon-1024x1024@1x.png
-          Contents.json
-        SplashScreenBackground.colorset/
-          Contents.json
-        SplashScreenLegacy.imageset/
-          Contents.json
-          image.png
-          image@2x.png
-          image@3x.png
-        Contents.json
-      Supporting/
-        Expo.plist
-      AppDelegate.swift
-      Info.plist
-      SplashScreen.storyboard
-      UngalVazhikatti-Bridging-Header.h
-      UngalVazhikatti.entitlements
-    UngalVazhikatti.xcodeproj/
-      xcshareddata/
-        xcschemes/
-          UngalVazhikatti.xcscheme
-      project.pbxproj
-    .gitignore
-    .xcode.env
-    Podfile
-    Podfile.properties.json
-  src/
-    lib/
-      api/
-        navigation.js
-      sensors/
-        deadReckoning.js
-    screens/
-      NavigationScreen.js
-      ScanQRScreen.js
-  .env.example
-  app.config.js
-  App.js
-  eas.json
-  jsconfig.json
-  package.json
 PWA/
   app/
     navigate/
@@ -637,6 +520,29 @@ ALTER TABLE "Floor" ADD COLUMN     "level" INTEGER;
 
 -- AlterTable
 ALTER TABLE "Poi" ADD COLUMN     "nodeId" TEXT NOT NULL;
+</file>
+
+<file path="backend/prisma/migrations/20260122194825_add_floor_id_to_poi/migration.sql">
+/*
+  Warnings:
+
+  - A unique constraint covering the columns `[nodeId]` on the table `Poi` will be added. If there are existing duplicate values, this will fail.
+  - Added the required column `floorId` to the `Poi` table without a default value. This is not possible if the table is not empty.
+
+*/
+-- AlterTable
+ALTER TABLE "Poi" ADD COLUMN     "floorId" TEXT NOT NULL;
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Poi_nodeId_key" ON "Poi"("nodeId");
+
+-- CreateIndex
+CREATE INDEX "Poi_floorId_idx" ON "Poi"("floorId");
+</file>
+
+<file path="backend/prisma/migrations/20260123182001_add_poi_floor_relation/migration.sql">
+-- AddForeignKey
+ALTER TABLE "Poi" ADD CONSTRAINT "Poi_floorId_fkey" FOREIGN KEY ("floorId") REFERENCES "Floor"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 </file>
 
 <file path="backend/prisma/migrations/migration_lock.toml">
@@ -964,42 +870,6 @@ export function GET() {
 }
 </file>
 
-<file path="backend/src/app/api/hospital/[hospitalId]/locations/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { hospitalId: string } }
-) {
-  try {
-    // 1. Log the incoming request for debugging
-    const hospitalId = params.hospitalId;
-    console.log("Fetching POIs for Hospital ID:", hospitalId);
-
-    // 2. Fetch POIs
-    const locations = await prisma.poi.findMany({
-      where: {
-        map: {
-          hospitalId: hospitalId,
-        },
-      },
-      include: {
-        map: true // Includes the map details just in case
-      }
-    });
-
-    console.log(`Found ${locations.length} locations`);
-
-    // 3. Return a clean array
-    return NextResponse.json(locations);
-  } catch (err: any) {
-    console.error("DATABASE ERROR:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
-}
-</file>
-
 <file path="backend/src/app/api/hospital/active/route.ts">
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
@@ -1026,6 +896,7 @@ export async function GET() {
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
 
@@ -1069,7 +940,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST: Save or Update floor/graph data
+ * POST: Save or Update floor/graph data and SYNC POIs
  */
 export async function POST(req: NextRequest) {
   try {
@@ -1092,7 +963,7 @@ export async function POST(req: NextRequest) {
 
     let floor;
 
-    // 1. VALIDATION: Check if mapId is a real UUID before trying to update
+    // 1. VALIDATION: Check if mapId is a real UUID
     const isPlaceholder = !mapId || mapId === 'new-uuid-placeholder' || mapId === 'undefined';
     
     let existingFloor = null;
@@ -1102,9 +973,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. BRANCHING LOGIC: Update or Create
+    // 2. Update or Create Floor record
     if (existingFloor) {
-      // Record exists in DB, safe to update
       floor = await prisma.floor.update({
         where: { id: mapId },
         data: { 
@@ -1112,9 +982,8 @@ export async function POST(req: NextRequest) {
           name: name || existingFloor.name 
         }
       });
-      console.log(`✅ Updated existing floor: ${mapId}`);
+      console.log(`✅ Updated floor: ${mapId}`);
     } else {
-      // No record found or was a placeholder, create new
       floor = await prisma.floor.create({
         data: {
           name: name || "Untitled Floor",
@@ -1122,7 +991,47 @@ export async function POST(req: NextRequest) {
           graphData,
         },
       });
-      console.log(`✨ Created new floor record: ${floor.id}`);
+      console.log(`✨ Created floor: ${floor.id}`);
+    }
+
+    // 3. THE LONG-TERM FIX: ATOMIC SYNC
+    if (graphData.pointsOfInterest && Array.isArray(graphData.pointsOfInterest)) {
+      const currentNodesInGraph = graphData.pointsOfInterest.map((p: any) => p.nodeId);
+
+      // A. DELETE: Remove POIs from database that were deleted in the Editor
+      const deleted = await prisma.poi.deleteMany({
+        where: {
+          floorId: floor.id,
+          nodeId: { notIn: currentNodesInGraph }
+        }
+      });
+      if (deleted.count > 0) console.log(`🗑️ Deleted ${deleted.count} orphaned POIs`);
+
+      // B. UPSERT: Update existing or create new POIs
+      console.log(`Syncing ${graphData.pointsOfInterest.length} POIs...`);
+      
+      for (const poiNode of graphData.pointsOfInterest) {
+        await prisma.poi.upsert({
+          where: { nodeId: poiNode.nodeId },
+          update: {
+            name: poiNode.name,
+            x: poiNode.x,
+            y: poiNode.y,
+            type: poiNode.type || "general",
+            floorId: floor.id,
+          },
+          create: {
+            nodeId: poiNode.nodeId,
+            name: poiNode.name,
+            qrId: crypto.randomUUID(), 
+            x: poiNode.x,
+            y: poiNode.y,
+            type: poiNode.type || "general",
+            floorId: floor.id,
+            mapId: body.mapId && body.mapId !== 'new-uuid-placeholder' ? body.mapId : floor.id
+          }
+        });
+      }
     }
 
     return cors(NextResponse.json(floor, { status: 201 }));
@@ -2226,6 +2135,22 @@ export function corsResponse(origin?: string) {
 }
 </file>
 
+<file path="backend/src/lib/prisma.ts">
+import { PrismaClient } from '@prisma/client'
+
+const prismaClientSingleton = () => {
+  return new PrismaClient()
+}
+
+declare global {
+  var prisma: undefined | ReturnType<typeof prismaClientSingleton>
+}
+
+export const prisma = globalThis.prisma ?? prismaClientSingleton()
+
+if (process.env.NODE_ENV !== 'production') globalThis.prisma = prisma
+</file>
+
 <file path="backend/src/routes/auth.ts">
 import { Router } from "express";
 import { verifyToken } from "../lib/auth/jwt";
@@ -2349,47 +2274,6 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-</file>
-
-<file path="backend/package.json">
-{
-  "name": "hospinav-backend",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
-    "start": "next start",
-    "lint": "next lint",
-    "postinstall": "prisma generate",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio"
-  },
-  "dependencies": {
-    "@prisma/client": "5.22.0",
-    "@supabase/supabase-js": "^2.39.0",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.3",
-    "next": "14.2.3",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "stripe": "^14.0.0",
-    "zod": "^3.22.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "18.2.0",
-    "eslint": "^8.0.0",
-    "eslint-config-next": "14.2.3",
-    "prisma": "5.22.0",
-    "typescript": "^5.3.3"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  }
-}
 </file>
 
 <file path="backend/tsconfig.json">
@@ -2732,324 +2616,6 @@ function MetricCard({ title, value, icon, color }: any) {
         </div>
       </div>
     </Card>
-  );
-}
-</file>
-
-<file path="frontend/app/editor/page.tsx">
-"use client";
-
-import { useEffect, useState, useRef } from "react";
-import Layout from "@/components/Layout";
-import {
-  MapPin,
-  Plus,
-  Trash2,
-  MousePointer,
-  ArrowRight,
-  Save,
-  Zap,
-  Loader2,
-} from "lucide-react";
-
-/* ---------- TYPES ---------- */
-interface POI {
-  id: number;                 // UI local id
-  nodeId: string;             // GLOBAL graph id (used for routing)
-  name: string;
-  type: string;
-  x: number;
-  y: number;
-  floorId: string;            // 🆕 floor identifier
-}
-
-interface Route {
-  id: number;
-  from: string;               // nodeId
-  to: string;                 // nodeId
-  distance: number;
-  floorId: string;
-}
-
-interface MapData {
-  id: string | number;
-  name: string;
-  url?: string;
-}
-
-/* ---------- GRAPH VALIDATOR ---------- */
-function validateGraph(pois: POI[], routes: Route[]): string[] {
-  const errors: string[] = [];
-  const nodeIds = new Set<string>();
-
-  for (const poi of pois) {
-    if (nodeIds.has(poi.nodeId)) {
-      errors.push(`Duplicate nodeId found: ${poi.name}`);
-    }
-    nodeIds.add(poi.nodeId);
-  }
-
-  for (const route of routes) {
-    const from = pois.find((p) => p.nodeId === route.from);
-    const to = pois.find((p) => p.nodeId === route.to);
-
-    if (!from || !to) {
-      errors.push("Route has missing node");
-      continue;
-    }
-
-    if (
-      from.floorId !== to.floorId &&
-      !["stairs", "lift"].includes(from.type) &&
-      !["stairs", "lift"].includes(to.type)
-    ) {
-      errors.push(
-        `Illegal cross-floor route: ${from.name} → ${to.name}`
-      );
-    }
-  }
-
-  return errors;
-}
-
-/* ---------- COMPONENT ---------- */
-export default function Editor() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
-  const [selectedMap, setSelectedMap] = useState<MapData | null>(null);
-
-  const [pointsOfInterest, setPointsOfInterest] = useState<POI[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-
-  const [activeTool, setActiveTool] = useState("pointer");
-  const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
-  const [routeStartPOI, setRouteStartPOI] = useState<number | null>(null);
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [isIdentifying, setIsIdentifying] = useState(false);
-
-  const canvasRef = useRef<HTMLDivElement | null>(null);
-  const draggingPOIRef = useRef<POI | null>(null);
-
-  /* ---------- POI TYPES ---------- */
-  const poiTypes = [
-    { value: "entrance", label: "Entrance" },
-    { value: "exit", label: "Exit" },
-    { value: "medical", label: "Medical" },
-    { value: "service", label: "Service" },
-    { value: "emergency", label: "Emergency" },
-    { value: "general", label: "General" },
-
-    // 🆕 FLOOR CONNECTORS
-    { value: "stairs", label: "Stairs" },
-    { value: "lift", label: "Lift" },
-  ];
-
-  /* ---------- AUTH + LOAD ---------- */
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const authRes = await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`,
-          { credentials: "include" }
-        );
-
-        if (!authRes.ok) {
-          window.location.href = "/login";
-          return;
-        }
-
-        const user = await authRes.json();
-        setHospitalId(user.id);
-
-        const params = new URLSearchParams(window.location.search);
-        const mapId = params.get("mapId") || crypto.randomUUID();
-        const mapUrl = localStorage.getItem("uploadedMapUrl") || "";
-
-        setSelectedMap({
-          id: mapId,
-          name: "Hospital Floor Plan",
-          url: mapUrl,
-        });
-
-        // Load existing floor data
-        const floorRes = await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor?hospitalId=${user.id}`,
-          { credentials: "include" }
-        );
-
-        const floors = await floorRes.json();
-        const current = floors.find((f: any) => f.id === mapId);
-
-        if (current?.graphData) {
-          setPointsOfInterest(current.graphData.pointsOfInterest || []);
-          setRoutes(current.graphData.routes || []);
-        }
-
-        setIsAuthenticated(true);
-      } catch (err) {
-        console.error(err);
-        window.location.href = "/login";
-      }
-    };
-
-    init();
-  }, []);
-
-  /* ---------- SAVE ---------- */
-  const handleSaveToDB = async () => {
-    if (!hospitalId || !selectedMap) return;
-
-    const errors = validateGraph(pointsOfInterest, routes);
-    if (errors.length) {
-      alert("Fix these issues before saving:\n\n" + errors.join("\n"));
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            hospitalId,
-            mapId: selectedMap.id,
-            name: selectedMap.name,
-            graphData: { pointsOfInterest, routes },
-          }),
-        }
-      );
-
-      const saved = await res.json();
-
-      if (saved.id) {
-        setSelectedMap((p) => (p ? { ...p, id: saved.id } : null));
-        window.history.replaceState(null, "", `/editor?mapId=${saved.id}`);
-      }
-
-      alert("Floor saved successfully");
-    } catch (err) {
-      console.error(err);
-      alert("Save failed");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  /* ---------- AI IDENTIFY ---------- */
-  const triggerAutoIdentify = async () => {
-    if (!selectedMap?.id) return;
-    setIsIdentifying(true);
-
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            action: "IDENTIFY_AUTO",
-            mapId: selectedMap.id,
-            graphData: { nodes: pointsOfInterest },
-          }),
-        }
-      );
-
-      const autoPois = await res.json();
-      setPointsOfInterest((p) => [...p, ...autoPois]);
-    } finally {
-      setIsIdentifying(false);
-    }
-  };
-
-  /* ---------- POI CLICK ---------- */
-  const handlePOIClick = (poi: POI, e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    if (activeTool === "delete") {
-      setPointsOfInterest((p) => p.filter((x) => x.id !== poi.id));
-      setRoutes((r) =>
-        r.filter((x) => x.from !== poi.nodeId && x.to !== poi.nodeId)
-      );
-      return;
-    }
-
-    if (activeTool === "route") {
-      if (routeStartPOI === null) {
-        setRouteStartPOI(poi.id);
-      } else {
-        const from = pointsOfInterest.find((p) => p.id === routeStartPOI);
-        if (!from) return;
-
-        const isConnector =
-          ["stairs", "lift"].includes(from.type) ||
-          ["stairs", "lift"].includes(poi.type);
-
-        if (from.floorId !== poi.floorId && !isConnector) {
-          alert("Cross-floor routes require stairs or lift");
-          setRouteStartPOI(null);
-          return;
-        }
-
-        setRoutes((r) => [
-          ...r,
-          {
-            id: Date.now(),
-            from: from.nodeId,
-            to: poi.nodeId,
-            distance:
-              from.floorId === poi.floorId
-                ? Math.round(Math.hypot(poi.x - from.x, poi.y - from.y))
-                : 1,
-            floorId: from.floorId,
-          },
-        ]);
-
-        setRouteStartPOI(null);
-      }
-      return;
-    }
-
-    setSelectedPOI(poi);
-  };
-
-  /* ---------- DRAG ---------- */
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!draggingPOIRef.current || !canvasRef.current) return;
-
-    const rect = canvasRef.current.getBoundingClientRect();
-    setPointsOfInterest((p) =>
-      p.map((x) =>
-        x.id === draggingPOIRef.current!.id
-          ? {
-              ...x,
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            }
-          : x
-      )
-    );
-  };
-
-  if (isAuthenticated === null)
-    return (
-      <div className="p-10 flex justify-center">
-        <Loader2 className="animate-spin text-indigo-600" />
-      </div>
-    );
-
-  /* ---------- RENDER ---------- */
-  return (
-    <Layout showSidebar>
-      {/* UI IS UNCHANGED – SAME AS YOUR FILE */}
-      {/* Canvas, toolbar, sidebar all preserved */}
-      {/* Only logic extended */}
-      {/* ✔ Ready for multi-floor navigation */}
-    </Layout>
   );
 }
 </file>
@@ -4021,39 +3587,6 @@ export const config = {
 
 <file path="frontend/next.config.js">
 const nextConfig = { reactStrictMode: true }; module.exports = nextConfig;
-</file>
-
-<file path="frontend/package.json">
-{
-  "name": "hospinav-frontend",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "@tailwindcss/typography": "^0.5.10",
-    "jose": "^6.1.3",
-    "lucide-react": "^0.276.0",
-    "next": "^14.2.35",
-    "qrcode.react": "^4.2.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-hot-toast": "^2.6.0",
-    "react-sparklines": "^1.7.0",
-    "recharts": "^2.7.2"
-  },
-  "devDependencies": {
-    "@types/node": "^20.4.2",
-    "@types/react": "^18.2.21",
-    "autoprefixer": "^10.4.15",
-    "postcss": "^8.4.27",
-    "tailwindcss": "^3.3.3",
-    "typescript": "^5.2.2"
-  }
-}
 </file>
 
 <file path="frontend/postcss.config.js">
@@ -6233,2376 +5766,6 @@ export default config;
 }
 </file>
 
-<file path="mobile/android/app/src/debug/AndroidManifest.xml">
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-
-    <application android:usesCleartextTraffic="true" tools:targetApi="28" tools:ignore="GoogleAppIndexingWarning" tools:replace="android:usesCleartextTraffic" />
-</manifest>
-</file>
-
-<file path="mobile/android/app/src/debugOptimized/AndroidManifest.xml">
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-
-    <application android:usesCleartextTraffic="true" tools:targetApi="28" tools:ignore="GoogleAppIndexingWarning" tools:replace="android:usesCleartextTraffic" />
-</manifest>
-</file>
-
-<file path="mobile/android/app/src/main/java/com/vazhikatti/app/MainActivity.kt">
-package com.vazhikatti.app
-
-import android.os.Build
-import android.os.Bundle
-
-import com.facebook.react.ReactActivity
-import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
-import com.facebook.react.defaults.DefaultReactActivityDelegate
-
-import expo.modules.ReactActivityDelegateWrapper
-
-class MainActivity : ReactActivity() {
-  override fun onCreate(savedInstanceState: Bundle?) {
-    // Set the theme to AppTheme BEFORE onCreate to support
-    // coloring the background, status bar, and navigation bar.
-    // This is required for expo-splash-screen.
-    setTheme(R.style.AppTheme);
-    super.onCreate(null)
-  }
-
-  /**
-   * Returns the name of the main component registered from JavaScript. This is used to schedule
-   * rendering of the component.
-   */
-  override fun getMainComponentName(): String = "main"
-
-  /**
-   * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
-   * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
-   */
-  override fun createReactActivityDelegate(): ReactActivityDelegate {
-    return ReactActivityDelegateWrapper(
-          this,
-          BuildConfig.IS_NEW_ARCHITECTURE_ENABLED,
-          object : DefaultReactActivityDelegate(
-              this,
-              mainComponentName,
-              fabricEnabled
-          ){})
-  }
-
-  /**
-    * Align the back button behavior with Android S
-    * where moving root activities to background instead of finishing activities.
-    * @see <a href="https://developer.android.com/reference/android/app/Activity#onBackPressed()">onBackPressed</a>
-    */
-  override fun invokeDefaultOnBackPressed() {
-      if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R) {
-          if (!moveTaskToBack(false)) {
-              // For non-root activities, use the default implementation to finish them.
-              super.invokeDefaultOnBackPressed()
-          }
-          return
-      }
-
-      // Use the default back button implementation on Android S
-      // because it's doing more than [Activity.moveTaskToBack] in fact.
-      super.invokeDefaultOnBackPressed()
-  }
-}
-</file>
-
-<file path="mobile/android/app/src/main/java/com/vazhikatti/app/MainApplication.kt">
-package com.vazhikatti.app
-
-import android.app.Application
-import android.content.res.Configuration
-
-import com.facebook.react.PackageList
-import com.facebook.react.ReactApplication
-import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
-import com.facebook.react.ReactNativeHost
-import com.facebook.react.ReactPackage
-import com.facebook.react.ReactHost
-import com.facebook.react.common.ReleaseLevel
-import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
-import com.facebook.react.defaults.DefaultReactNativeHost
-
-import expo.modules.ApplicationLifecycleDispatcher
-import expo.modules.ReactNativeHostWrapper
-
-class MainApplication : Application(), ReactApplication {
-
-  override val reactNativeHost: ReactNativeHost = ReactNativeHostWrapper(
-      this,
-      object : DefaultReactNativeHost(this) {
-        override fun getPackages(): List<ReactPackage> =
-            PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
-            }
-
-          override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
-
-          override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
-
-          override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
-      }
-  )
-
-  override val reactHost: ReactHost
-    get() = ReactNativeHostWrapper.createReactHost(applicationContext, reactNativeHost)
-
-  override fun onCreate() {
-    super.onCreate()
-    DefaultNewArchitectureEntryPoint.releaseLevel = try {
-      ReleaseLevel.valueOf(BuildConfig.REACT_NATIVE_RELEASE_LEVEL.uppercase())
-    } catch (e: IllegalArgumentException) {
-      ReleaseLevel.STABLE
-    }
-    loadReactNative(this)
-    ApplicationLifecycleDispatcher.onApplicationCreate(this)
-  }
-
-  override fun onConfigurationChanged(newConfig: Configuration) {
-    super.onConfigurationChanged(newConfig)
-    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
-  }
-}
-</file>
-
-<file path="mobile/android/app/src/main/res/drawable/ic_launcher_background.xml">
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-  <item android:drawable="@color/splashscreen_background"/>
-  <item>
-    <bitmap android:gravity="center" android:src="@drawable/splashscreen_logo"/>
-  </item>
-</layer-list>
-</file>
-
-<file path="mobile/android/app/src/main/res/drawable/rn_edit_text_material.xml">
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright (C) 2014 The Android Open Source Project
-
-     Licensed under the Apache License, Version 2.0 (the "License");
-     you may not use this file except in compliance with the License.
-     You may obtain a copy of the License at
-
-          http://www.apache.org/licenses/LICENSE-2.0
-
-     Unless required by applicable law or agreed to in writing, software
-     distributed under the License is distributed on an "AS IS" BASIS,
-     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-     See the License for the specific language governing permissions and
-     limitations under the License.
--->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-       android:insetLeft="@dimen/abc_edit_text_inset_horizontal_material"
-       android:insetRight="@dimen/abc_edit_text_inset_horizontal_material"
-       android:insetTop="@dimen/abc_edit_text_inset_top_material"
-       android:insetBottom="@dimen/abc_edit_text_inset_bottom_material"
-       >
-
-    <selector>
-        <!--
-          This file is a copy of abc_edit_text_material (https://bit.ly/3k8fX7I).
-          The item below with state_pressed="false" and state_focused="false" causes a NullPointerException.
-          NullPointerException:tempt to invoke virtual method 'android.graphics.drawable.Drawable android.graphics.drawable.Drawable$ConstantState.newDrawable(android.content.res.Resources)'
-
-          <item android:state_pressed="false" android:state_focused="false" android:drawable="@drawable/abc_textfield_default_mtrl_alpha"/>
-
-          For more info, see https://bit.ly/3CdLStv (react-native/pull/29452) and https://bit.ly/3nxOMoR.
-        -->
-        <item android:state_enabled="false" android:drawable="@drawable/abc_textfield_default_mtrl_alpha"/>
-        <item android:drawable="@drawable/abc_textfield_activated_mtrl_alpha"/>
-    </selector>
-
-</inset>
-</file>
-
-<file path="mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml">
-<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/iconBackground"/>
-    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-</adaptive-icon>
-</file>
-
-<file path="mobile/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml">
-<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/iconBackground"/>
-    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-</adaptive-icon>
-</file>
-
-<file path="mobile/android/app/src/main/res/values/colors.xml">
-<resources>
-  <color name="splashscreen_background">#ffffff</color>
-  <color name="iconBackground">#ffffff</color>
-  <color name="colorPrimary">#023c69</color>
-  <color name="colorPrimaryDark">#ffffff</color>
-</resources>
-</file>
-
-<file path="mobile/android/app/src/main/res/values/strings.xml">
-<resources>
-  <string name="app_name">Ungal Vazhikatti</string>
-  <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
-  <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
-</resources>
-</file>
-
-<file path="mobile/android/app/src/main/res/values/styles.xml">
-<resources xmlns:tools="http://schemas.android.com/tools">
-  <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-    <item name="android:enforceNavigationBarContrast" tools:targetApi="29">true</item>
-    <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
-    <item name="colorPrimary">@color/colorPrimary</item>
-    <item name="android:statusBarColor">#ffffff</item>
-  </style>
-  <style name="Theme.App.SplashScreen" parent="AppTheme">
-    <item name="android:windowBackground">@drawable/ic_launcher_background</item>
-  </style>
-</resources>
-</file>
-
-<file path="mobile/android/app/src/main/res/values-night/colors.xml">
-<resources/>
-</file>
-
-<file path="mobile/android/app/src/main/AndroidManifest.xml">
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-  <uses-permission android:name="android.permission.CAMERA"/>
-  <uses-permission android:name="android.permission.INTERNET"/>
-  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-  <uses-permission android:name="android.permission.VIBRATE"/>
-  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
-  <queries>
-    <intent>
-      <action android:name="android.intent.action.VIEW"/>
-      <category android:name="android.intent.category.BROWSABLE"/>
-      <data android:scheme="https"/>
-    </intent>
-  </queries>
-  <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
-    <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
-    <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
-    <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
-    <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-      </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="vazhikatti"/>
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>
-</file>
-
-<file path="mobile/android/app/build.gradle">
-apply plugin: "com.android.application"
-apply plugin: "org.jetbrains.kotlin.android"
-apply plugin: "com.facebook.react"
-
-def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
-
-/**
- * This is the configuration block to customize your React Native Android app.
- * By default you don't need to apply any configuration, just uncomment the lines you need.
- */
-react {
-    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
-    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
-    hermesCommand = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/sdks/hermesc/%OS-BIN%/hermesc"
-    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
-
-    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
-    // Use Expo CLI to bundle the app, this ensures the Metro config
-    // works correctly with Expo projects.
-    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
-    bundleCommand = "export:embed"
-
-    /* Folders */
-     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-
-    /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "prodDebug"]
-
-    /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
-
-    //
-    //   The path to the CLI configuration file. Default is empty.
-    // bundleConfig = file(../rn-cli.config.js)
-    //
-    //   The name of the generated asset file containing your JS bundle
-    // bundleAssetName = "MyApplication.android.bundle"
-    //
-    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    // entryFile = file("../js/MyApplication.android.js")
-    //
-    //   A list of extra flags to pass to the 'bundle' commands.
-    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    //
-    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
-
-    /* Autolinking */
-    autolinkLibrariesWithApp()
-}
-
-/**
- * Set this to true in release builds to optimize the app using [R8](https://developer.android.com/topic/performance/app-optimization/enable-app-optimization).
- */
-def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBuilds') ?: false).toBoolean()
-
-/**
- * The preferred build flavor of JavaScriptCore (JSC)
- *
- * For example, to use the international variant, you can use:
- * `def jscFlavor = 'org.webkit:android-jsc-intl:+'`
- *
- * The international variant includes ICU i18n library and necessary data
- * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
- * give correct results when using with locales other than en-US. Note that
- * this variant is about 6MiB larger per architecture than default.
- */
-def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
-
-android {
-    ndkVersion rootProject.ext.ndkVersion
-
-    buildToolsVersion rootProject.ext.buildToolsVersion
-    compileSdk rootProject.ext.compileSdkVersion
-
-    namespace 'com.vazhikatti.app'
-    defaultConfig {
-        applicationId 'com.vazhikatti.app'
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
-
-        buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
-    }
-    signingConfigs {
-        debug {
-            storeFile file('debug.keystore')
-            storePassword 'android'
-            keyAlias 'androiddebugkey'
-            keyPassword 'android'
-        }
-    }
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-        }
-        release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
-            minifyEnabled enableMinifyInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
-            crunchPngs enablePngCrunchInRelease.toBoolean()
-        }
-    }
-    packagingOptions {
-        jniLibs {
-            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
-            useLegacyPackaging enableLegacyPackaging.toBoolean()
-        }
-    }
-    androidResources {
-        ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
-    }
-}
-
-// Apply static values from `gradle.properties` to the `android.packagingOptions`
-// Accepts values in comma delimited lists, example:
-// android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini
-["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
-    // Split option: 'foo,bar' -> ['foo', 'bar']
-    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",");
-    // Trim all elements in place.
-    for (i in 0..<options.size()) options[i] = options[i].trim();
-    // `[] - ""` is essentially `[""].filter(Boolean)` removing all empty strings.
-    options -= ""
-
-    if (options.length > 0) {
-        println "android.packagingOptions.$prop += $options ($options.length)"
-        // Ex: android.packagingOptions.pickFirsts += '**/SCCS/**'
-        options.each {
-            android.packagingOptions[prop] += it
-        }
-    }
-}
-
-dependencies {
-    // The version of react-native is set by the React Native Gradle Plugin
-    implementation("com.facebook.react:react-android")
-
-    def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
-    def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";
-    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: "") == "true";
-
-    if (isGifEnabled) {
-        // For animated gif support
-        implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
-    }
-
-    if (isWebpEnabled) {
-        // For webp support
-        implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
-        if (isWebpAnimatedEnabled) {
-            // Animated webp support
-            implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
-        }
-    }
-
-    if (hermesEnabled.toBoolean()) {
-        implementation("com.facebook.react:hermes-android")
-    } else {
-        implementation jscFlavor
-    }
-}
-</file>
-
-<file path="mobile/android/app/proguard-rules.pro">
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in /usr/local/Cellar/android-sdk/24.3.3/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
-
-# react-native-reanimated
--keep class com.swmansion.reanimated.** { *; }
--keep class com.facebook.react.turbomodule.** { *; }
-
-# Add any project specific keep options here:
-</file>
-
-<file path="mobile/android/gradle/wrapper/gradle-wrapper.properties">
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.14.3-bin.zip
-networkTimeout=10000
-validateDistributionUrl=true
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-</file>
-
-<file path="mobile/android/.gitignore">
-# OSX
-#
-.DS_Store
-
-# Android/IntelliJ
-#
-build/
-.idea
-.gradle
-local.properties
-*.iml
-*.hprof
-.cxx/
-
-# Bundle artifacts
-*.jsbundle
-</file>
-
-<file path="mobile/android/build.gradle">
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
-
-buildscript {
-  repositories {
-    google()
-    mavenCentral()
-  }
-  dependencies {
-    classpath('com.android.tools.build:gradle')
-    classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
-  }
-}
-
-allprojects {
-  repositories {
-    google()
-    mavenCentral()
-    maven { url 'https://www.jitpack.io' }
-  }
-}
-
-apply plugin: "expo-root-project"
-apply plugin: "com.facebook.react.rootproject"
-</file>
-
-<file path="mobile/android/gradle.properties">
-# Project-wide Gradle settings.
-
-# IDE (e.g. Android Studio) users:
-# Gradle settings configured through the IDE *will override*
-# any settings specified in this file.
-
-# For more details on how to configure your build environment visit
-# http://www.gradle.org/docs/current/userguide/build_environment.html
-
-# Specifies the JVM arguments used for the daemon process.
-# The setting is particularly useful for tweaking memory settings.
-# Default value: -Xmx512m -XX:MaxMetaspaceSize=256m
-org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
-
-# When configured, Gradle will run in incubating parallel mode.
-# This option should only be used with decoupled projects. More details, visit
-# http://www.gradle.org/docs/current/userguide/multi_project_builds.html#sec:decoupled_projects
-org.gradle.parallel=true
-
-# AndroidX package structure to make it clearer which packages are bundled with the
-# Android operating system, and which are packaged with your app's APK
-# https://developer.android.com/topic/libraries/support-library/androidx-rn
-android.useAndroidX=true
-
-# Enable AAPT2 PNG crunching
-android.enablePngCrunchInReleaseBuilds=true
-
-# Use this property to specify which architecture you want to build.
-# You can also override it from the CLI using
-# ./gradlew <task> -PreactNativeArchitectures=x86_64
-reactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64
-
-# Use this property to enable support to the new architecture.
-# This will allow you to use TurboModules and the Fabric render in
-# your application. You should enable this flag either if you want
-# to write custom TurboModules/Fabric components OR use libraries that
-# are providing them.
-newArchEnabled=false
-
-# Use this property to enable or disable the Hermes JS engine.
-# If set to false, you will be using JSC instead.
-hermesEnabled=true
-
-# Use this property to enable edge-to-edge display support.
-# This allows your app to draw behind system bars for an immersive UI.
-# Note: Only works with ReactActivity and should not be used with custom Activity.
-edgeToEdgeEnabled=true
-
-# Enable GIF support in React Native images (~200 B increase)
-expo.gif.enabled=true
-# Enable webp support in React Native images (~85 KB increase)
-expo.webp.enabled=true
-# Enable animated webp support (~3.4 MB increase)
-# Disabled by default because iOS doesn't support animated webp
-expo.webp.animated=false
-
-# Enable network inspector
-EX_DEV_CLIENT_NETWORK_INSPECTOR=true
-
-# Use legacy packaging to compress native libraries in the resulting APK.
-expo.useLegacyPackaging=false
-
-# Specifies whether the app is configured to use edge-to-edge via the app config or plugin
-# WARNING: This property has been deprecated and will be removed in Expo SDK 55. Use `edgeToEdgeEnabled` or `react.edgeToEdgeEnabled` to determine whether the project is using edge-to-edge.
-expo.edgeToEdgeEnabled=true
-</file>
-
-<file path="mobile/android/gradlew">
-#!/bin/sh
-
-#
-# Copyright © 2015-2021 the original authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# SPDX-License-Identifier: Apache-2.0
-#
-
-##############################################################################
-#
-#   Gradle start up script for POSIX generated by Gradle.
-#
-#   Important for running:
-#
-#   (1) You need a POSIX-compliant shell to run this script. If your /bin/sh is
-#       noncompliant, but you have some other compliant shell such as ksh or
-#       bash, then to run this script, type that shell name before the whole
-#       command line, like:
-#
-#           ksh Gradle
-#
-#       Busybox and similar reduced shells will NOT work, because this script
-#       requires all of these POSIX shell features:
-#         * functions;
-#         * expansions «$var», «${var}», «${var:-default}», «${var+SET}»,
-#           «${var#prefix}», «${var%suffix}», and «$( cmd )»;
-#         * compound commands having a testable exit status, especially «case»;
-#         * various built-in commands including «command», «set», and «ulimit».
-#
-#   Important for patching:
-#
-#   (2) This script targets any POSIX shell, so it avoids extensions provided
-#       by Bash, Ksh, etc; in particular arrays are avoided.
-#
-#       The "traditional" practice of packing multiple parameters into a
-#       space-separated string is a well documented source of bugs and security
-#       problems, so this is (mostly) avoided, by progressively accumulating
-#       options in "$@", and eventually passing that to Java.
-#
-#       Where the inherited environment variables (DEFAULT_JVM_OPTS, JAVA_OPTS,
-#       and GRADLE_OPTS) rely on word-splitting, this is performed explicitly;
-#       see the in-line comments for details.
-#
-#       There are tweaks for specific operating systems such as AIX, CygWin,
-#       Darwin, MinGW, and NonStop.
-#
-#   (3) This script is generated from the Groovy template
-#       https://github.com/gradle/gradle/blob/HEAD/platforms/jvm/plugins-application/src/main/resources/org/gradle/api/internal/plugins/unixStartScript.txt
-#       within the Gradle project.
-#
-#       You can find Gradle at https://github.com/gradle/gradle/.
-#
-##############################################################################
-
-# Attempt to set APP_HOME
-
-# Resolve links: $0 may be a link
-app_path=$0
-
-# Need this for daisy-chained symlinks.
-while
-    APP_HOME=${app_path%"${app_path##*/}"}  # leaves a trailing /; empty if no leading path
-    [ -h "$app_path" ]
-do
-    ls=$( ls -ld "$app_path" )
-    link=${ls#*' -> '}
-    case $link in             #(
-      /*)   app_path=$link ;; #(
-      *)    app_path=$APP_HOME$link ;;
-    esac
-done
-
-# This is normally unused
-# shellcheck disable=SC2034
-APP_BASE_NAME=${0##*/}
-# Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
-APP_HOME=$( cd -P "${APP_HOME:-./}" > /dev/null && printf '%s\n' "$PWD" ) || exit
-
-# Use the maximum available, or set MAX_FD != -1 to use that value.
-MAX_FD=maximum
-
-warn () {
-    echo "$*"
-} >&2
-
-die () {
-    echo
-    echo "$*"
-    echo
-    exit 1
-} >&2
-
-# OS specific support (must be 'true' or 'false').
-cygwin=false
-msys=false
-darwin=false
-nonstop=false
-case "$( uname )" in                #(
-  CYGWIN* )         cygwin=true  ;; #(
-  Darwin* )         darwin=true  ;; #(
-  MSYS* | MINGW* )  msys=true    ;; #(
-  NONSTOP* )        nonstop=true ;;
-esac
-
-CLASSPATH="\\\"\\\""
-
-
-# Determine the Java command to use to start the JVM.
-if [ -n "$JAVA_HOME" ] ; then
-    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
-        # IBM's JDK on AIX uses strange locations for the executables
-        JAVACMD=$JAVA_HOME/jre/sh/java
-    else
-        JAVACMD=$JAVA_HOME/bin/java
-    fi
-    if [ ! -x "$JAVACMD" ] ; then
-        die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME
-
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
-    fi
-else
-    JAVACMD=java
-    if ! command -v java >/dev/null 2>&1
-    then
-        die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.
-
-Please set the JAVA_HOME variable in your environment to match the
-location of your Java installation."
-    fi
-fi
-
-# Increase the maximum file descriptors if we can.
-if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
-    case $MAX_FD in #(
-      max*)
-        # In POSIX sh, ulimit -H is undefined. That's why the result is checked to see if it worked.
-        # shellcheck disable=SC2039,SC3045
-        MAX_FD=$( ulimit -H -n ) ||
-            warn "Could not query maximum file descriptor limit"
-    esac
-    case $MAX_FD in  #(
-      '' | soft) :;; #(
-      *)
-        # In POSIX sh, ulimit -n is undefined. That's why the result is checked to see if it worked.
-        # shellcheck disable=SC2039,SC3045
-        ulimit -n "$MAX_FD" ||
-            warn "Could not set maximum file descriptor limit to $MAX_FD"
-    esac
-fi
-
-# Collect all arguments for the java command, stacking in reverse order:
-#   * args from the command line
-#   * the main class name
-#   * -classpath
-#   * -D...appname settings
-#   * --module-path (only if needed)
-#   * DEFAULT_JVM_OPTS, JAVA_OPTS, and GRADLE_OPTS environment variables.
-
-# For Cygwin or MSYS, switch paths to Windows format before running java
-if "$cygwin" || "$msys" ; then
-    APP_HOME=$( cygpath --path --mixed "$APP_HOME" )
-    CLASSPATH=$( cygpath --path --mixed "$CLASSPATH" )
-
-    JAVACMD=$( cygpath --unix "$JAVACMD" )
-
-    # Now convert the arguments - kludge to limit ourselves to /bin/sh
-    for arg do
-        if
-            case $arg in                                #(
-              -*)   false ;;                            # don't mess with options #(
-              /?*)  t=${arg#/} t=/${t%%/*}              # looks like a POSIX filepath
-                    [ -e "$t" ] ;;                      #(
-              *)    false ;;
-            esac
-        then
-            arg=$( cygpath --path --ignore --mixed "$arg" )
-        fi
-        # Roll the args list around exactly as many times as the number of
-        # args, so each arg winds up back in the position where it started, but
-        # possibly modified.
-        #
-        # NB: a `for` loop captures its iteration list before it begins, so
-        # changing the positional parameters here affects neither the number of
-        # iterations, nor the values presented in `arg`.
-        shift                   # remove old arg
-        set -- "$@" "$arg"      # push replacement arg
-    done
-fi
-
-
-# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
-
-# Collect all arguments for the java command:
-#   * DEFAULT_JVM_OPTS, JAVA_OPTS, JAVA_OPTS, and optsEnvironmentVar are not allowed to contain shell fragments,
-#     and any embedded shellness will be escaped.
-#   * For example: A user cannot expect ${Hostname} to be expanded, as it is an environment variable and will be
-#     treated as '${Hostname}' itself on the command line.
-
-set -- \
-        "-Dorg.gradle.appname=$APP_BASE_NAME" \
-        -classpath "$CLASSPATH" \
-        -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
-        "$@"
-
-# Stop when "xargs" is not available.
-if ! command -v xargs >/dev/null 2>&1
-then
-    die "xargs is not available"
-fi
-
-# Use "xargs" to parse quoted args.
-#
-# With -n1 it outputs one arg per line, with the quotes and backslashes removed.
-#
-# In Bash we could simply go:
-#
-#   readarray ARGS < <( xargs -n1 <<<"$var" ) &&
-#   set -- "${ARGS[@]}" "$@"
-#
-# but POSIX shell has neither arrays nor command substitution, so instead we
-# post-process each arg (as a line of input to sed) to backslash-escape any
-# character that might be a shell metacharacter, then use eval to reverse
-# that process (while maintaining the separation between arguments), and wrap
-# the whole thing up as a single "set" statement.
-#
-# This will of course break if any of these variables contains a newline or
-# an unmatched quote.
-#
-
-eval "set -- $(
-        printf '%s\n' "$DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS" |
-        xargs -n1 |
-        sed ' s~[^-[:alnum:]+,./:=@_]~\\&~g; ' |
-        tr '\n' ' '
-    )" '"$@"'
-
-exec "$JAVACMD" "$@"
-</file>
-
-<file path="mobile/android/gradlew.bat">
-@rem
-@rem Copyright 2015 the original author or authors.
-@rem
-@rem Licensed under the Apache License, Version 2.0 (the "License");
-@rem you may not use this file except in compliance with the License.
-@rem You may obtain a copy of the License at
-@rem
-@rem      https://www.apache.org/licenses/LICENSE-2.0
-@rem
-@rem Unless required by applicable law or agreed to in writing, software
-@rem distributed under the License is distributed on an "AS IS" BASIS,
-@rem WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-@rem See the License for the specific language governing permissions and
-@rem limitations under the License.
-@rem
-@rem SPDX-License-Identifier: Apache-2.0
-@rem
-
-@if "%DEBUG%"=="" @echo off
-@rem ##########################################################################
-@rem
-@rem  Gradle startup script for Windows
-@rem
-@rem ##########################################################################
-
-@rem Set local scope for the variables with windows NT shell
-if "%OS%"=="Windows_NT" setlocal
-
-set DIRNAME=%~dp0
-if "%DIRNAME%"=="" set DIRNAME=.
-@rem This is normally unused
-set APP_BASE_NAME=%~n0
-set APP_HOME=%DIRNAME%
-
-@rem Resolve any "." and ".." in APP_HOME to make it shorter.
-for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
-
-@rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
-set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
-
-@rem Find java.exe
-if defined JAVA_HOME goto findJavaFromJavaHome
-
-set JAVA_EXE=java.exe
-%JAVA_EXE% -version >NUL 2>&1
-if %ERRORLEVEL% equ 0 goto execute
-
-echo. 1>&2
-echo ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH. 1>&2
-echo. 1>&2
-echo Please set the JAVA_HOME variable in your environment to match the 1>&2
-echo location of your Java installation. 1>&2
-
-goto fail
-
-:findJavaFromJavaHome
-set JAVA_HOME=%JAVA_HOME:"=%
-set JAVA_EXE=%JAVA_HOME%/bin/java.exe
-
-if exist "%JAVA_EXE%" goto execute
-
-echo. 1>&2
-echo ERROR: JAVA_HOME is set to an invalid directory: %JAVA_HOME% 1>&2
-echo. 1>&2
-echo Please set the JAVA_HOME variable in your environment to match the 1>&2
-echo location of your Java installation. 1>&2
-
-goto fail
-
-:execute
-@rem Setup the command line
-
-set CLASSPATH=
-
-
-@rem Execute Gradle
-"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -classpath "%CLASSPATH%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
-
-:end
-@rem End local scope for the variables with windows NT shell
-if %ERRORLEVEL% equ 0 goto mainEnd
-
-:fail
-rem Set variable GRADLE_EXIT_CONSOLE if you need the _script_ return code instead of
-rem the _cmd.exe /c_ return code!
-set EXIT_CODE=%ERRORLEVEL%
-if %EXIT_CODE% equ 0 set EXIT_CODE=1
-if not ""=="%GRADLE_EXIT_CONSOLE%" exit %EXIT_CODE%
-exit /b %EXIT_CODE%
-
-:mainEnd
-if "%OS%"=="Windows_NT" endlocal
-
-:omega
-</file>
-
-<file path="mobile/android/settings.gradle">
-pluginManagement {
-  def reactNativeGradlePlugin = new File(
-    providers.exec {
-      workingDir(rootDir)
-      commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
-    }.standardOutput.asText.get().trim()
-  ).getParentFile().absolutePath
-  includeBuild(reactNativeGradlePlugin)
-  
-  def expoPluginsPath = new File(
-    providers.exec {
-      workingDir(rootDir)
-      commandLine("node", "--print", "require.resolve('expo-modules-autolinking/package.json', { paths: [require.resolve('expo/package.json')] })")
-    }.standardOutput.asText.get().trim(),
-    "../android/expo-gradle-plugin"
-  ).absolutePath
-  includeBuild(expoPluginsPath)
-}
-
-plugins {
-  id("com.facebook.react.settings")
-  id("expo-autolinking-settings")
-}
-
-extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-  if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
-    ex.autolinkLibrariesFromCommand()
-  } else {
-    ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
-  }
-}
-expoAutolinking.useExpoModules()
-
-rootProject.name = 'Ungal Vazhikatti'
-
-expoAutolinking.useExpoVersionCatalog()
-
-include ':app'
-includeBuild(expoAutolinking.reactNativeGradlePlugin)
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Images.xcassets/AppIcon.appiconset/Contents.json">
-{
-  "images": [
-    {
-      "filename": "App-Icon-1024x1024@1x.png",
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
-    }
-  ],
-  "info": {
-    "version": 1,
-    "author": "expo"
-  }
-}
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Images.xcassets/SplashScreenBackground.colorset/Contents.json">
-{
-  "colors": [
-    {
-      "color": {
-        "components": {
-          "alpha": "1.000",
-          "blue": "1.00000000000000",
-          "green": "1.00000000000000",
-          "red": "1.00000000000000"
-        },
-        "color-space": "srgb"
-      },
-      "idiom": "universal"
-    }
-  ],
-  "info": {
-    "version": 1,
-    "author": "expo"
-  }
-}
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Images.xcassets/SplashScreenLegacy.imageset/Contents.json">
-{
-  "images": [
-    {
-      "idiom": "universal",
-      "filename": "image.png",
-      "scale": "1x"
-    },
-    {
-      "idiom": "universal",
-      "filename": "image@2x.png",
-      "scale": "2x"
-    },
-    {
-      "idiom": "universal",
-      "filename": "image@3x.png",
-      "scale": "3x"
-    }
-  ],
-  "info": {
-    "version": 1,
-    "author": "expo"
-  }
-}
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Images.xcassets/Contents.json">
-{
-  "info" : {
-    "version" : 1,
-    "author" : "expo"
-  }
-}
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Supporting/Expo.plist">
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>EXUpdatesCheckOnLaunch</key>
-    <string>ALWAYS</string>
-    <key>EXUpdatesEnabled</key>
-    <false/>
-    <key>EXUpdatesLaunchWaitMs</key>
-    <integer>0</integer>
-  </dict>
-</plist>
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/AppDelegate.swift">
-import Expo
-import React
-import ReactAppDependencyProvider
-
-@UIApplicationMain
-public class AppDelegate: ExpoAppDelegate {
-  var window: UIWindow?
-
-  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?
-  var reactNativeFactory: RCTReactNativeFactory?
-
-  public override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-  ) -> Bool {
-    let delegate = ReactNativeDelegate()
-    let factory = ExpoReactNativeFactory(delegate: delegate)
-    delegate.dependencyProvider = RCTAppDependencyProvider()
-
-    reactNativeDelegate = delegate
-    reactNativeFactory = factory
-    bindReactNativeFactory(factory)
-
-#if os(iOS) || os(tvOS)
-    window = UIWindow(frame: UIScreen.main.bounds)
-    factory.startReactNative(
-      withModuleName: "main",
-      in: window,
-      launchOptions: launchOptions)
-#endif
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-  }
-
-  // Linking API
-  public override func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    return super.application(app, open: url, options: options) || RCTLinkingManager.application(app, open: url, options: options)
-  }
-
-  // Universal Links
-  public override func application(
-    _ application: UIApplication,
-    continue userActivity: NSUserActivity,
-    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
-  ) -> Bool {
-    let result = RCTLinkingManager.application(application, continue: userActivity, restorationHandler: restorationHandler)
-    return super.application(application, continue: userActivity, restorationHandler: restorationHandler) || result
-  }
-}
-
-class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
-  // Extension point for config-plugins
-
-  override func sourceURL(for bridge: RCTBridge) -> URL? {
-    // needed to return the correct URL for expo-dev-client.
-    bridge.bundleURL ?? bundleURL()
-  }
-
-  override func bundleURL() -> URL? {
-#if DEBUG
-    return RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: ".expo/.virtual-metro-entry")
-#else
-    return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
-#endif
-  }
-}
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/Info.plist">
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>CADisableMinimumFrameDurationOnPhone</key>
-    <true/>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ungal Vazhikatti</string>
-    <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>$(PRODUCT_NAME)</string>
-    <key>CFBundlePackageType</key>
-    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleSignature</key>
-    <string>????</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>vazhikatti</string>
-          <string>com.vazhikatti.app</string>
-        </array>
-      </dict>
-    </array>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-      <key>NSAllowsArbitraryLoads</key>
-      <false/>
-      <key>NSAllowsLocalNetworking</key>
-      <true/>
-    </dict>
-    <key>NSCameraUsageDescription</key>
-    <string>Allow Ungal Vazhikatti to access your camera</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Allow Ungal Vazhikatti to access your microphone</string>
-    <key>NSMotionUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your device motion</string>
-    <key>RCTNewArchEnabled</key>
-    <false/>
-    <key>UILaunchStoryboardName</key>
-    <string>SplashScreen</string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-      <string>arm64</string>
-    </array>
-    <key>UIRequiresFullScreen</key>
-    <false/>
-    <key>UIStatusBarStyle</key>
-    <string>UIStatusBarStyleDefault</string>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-      <string>UIInterfaceOrientationPortrait</string>
-      <string>UIInterfaceOrientationPortraitUpsideDown</string>
-    </array>
-    <key>UISupportedInterfaceOrientations~ipad</key>
-    <array>
-      <string>UIInterfaceOrientationPortrait</string>
-      <string>UIInterfaceOrientationPortraitUpsideDown</string>
-      <string>UIInterfaceOrientationLandscapeLeft</string>
-      <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-    <key>UIUserInterfaceStyle</key>
-    <string>Light</string>
-    <key>UIViewControllerBasedStatusBarAppearance</key>
-    <false/>
-  </dict>
-</plist>
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/SplashScreen.storyboard">
-<?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24093.7" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="EXPO-VIEWCONTROLLER-1">
-    <device id="retina6_12" orientation="portrait" appearance="light"/>
-    <dependencies>
-        <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24053.1"/>
-        <capability name="Named colors" minToolsVersion="9.0"/>
-        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
-        <capability name="System colors in document resources" minToolsVersion="11.0"/>
-        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
-    </dependencies>
-    <scenes>
-        <scene sceneID="EXPO-SCENE-1">
-            <objects>
-                <viewController storyboardIdentifier="SplashScreenViewController" id="EXPO-VIEWCONTROLLER-1" sceneMemberID="viewController">
-                    <view key="view" userInteractionEnabled="NO" contentMode="scaleToFill" insetsLayoutMarginsFromSafeArea="NO" id="EXPO-ContainerView" userLabel="ContainerView">
-                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
-                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                        <subviews>
-                            <imageView id="EXPO-SplashScreen" userLabel="SplashScreenLegacy" image="SplashScreenLegacy" contentMode="scaleAspectFit" clipsSubviews="true" userInteractionEnabled="false" translatesAutoresizingMaskIntoConstraints="false">
-                                <rect key="frame" x="0" y="0" width="414" height="736"/>
-                            </imageView>
-                        </subviews>
-                        <viewLayoutGuide key="safeArea" id="Rmq-lb-GrQ"/>
-                        <constraints>
-                            <constraint firstItem="EXPO-SplashScreen" firstAttribute="top" secondItem="EXPO-ContainerView" secondAttribute="top" id="83fcb9b545b870ba44c24f0feeb116490c499c52"/>
-                            <constraint firstItem="EXPO-SplashScreen" firstAttribute="leading" secondItem="EXPO-ContainerView" secondAttribute="leading" id="61d16215e44b98e39d0a2c74fdbfaaa22601b12c"/>
-                            <constraint firstItem="EXPO-SplashScreen" firstAttribute="trailing" secondItem="EXPO-ContainerView" secondAttribute="trailing" id="f934da460e9ab5acae3ad9987d5b676a108796c1"/>
-                            <constraint firstItem="EXPO-SplashScreen" firstAttribute="bottom" secondItem="EXPO-ContainerView" secondAttribute="bottom" id="d6a0be88096b36fb132659aa90203d39139deda9"/>
-                        </constraints>
-                        <color key="backgroundColor" name="SplashScreenBackground"/>
-                    </view>
-                </viewController>
-                <placeholder placeholderIdentifier="IBFirstResponder" id="EXPO-PLACEHOLDER-1" userLabel="First Responder" sceneMemberID="firstResponder"/>
-            </objects>
-            <point key="canvasLocation" x="0.0" y="0.0"/>
-        </scene>
-    </scenes>
-    <resources>
-        <image name="SplashScreenLegacy" width="414" height="736"/>
-        <systemColor name="systemBackgroundColor">
-            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-        </systemColor>
-        <namedColor name="SplashScreenBackground">
-            <color alpha="1.000" blue="1.00000000000000" green="1.00000000000000" red="1.00000000000000" customColorSpace="sRGB" colorSpace="custom"/>
-        </namedColor>
-    </resources>
-</document>
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/UngalVazhikatti-Bridging-Header.h">
-//
-// Use this file to import your target's public headers that you would like to expose to Swift.
-//
-</file>
-
-<file path="mobile/ios/UngalVazhikatti/UngalVazhikatti.entitlements">
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict/>
-</plist>
-</file>
-
-<file path="mobile/ios/UngalVazhikatti.xcodeproj/xcshareddata/xcschemes/UngalVazhikatti.xcscheme">
-<?xml version="1.0" encoding="UTF-8"?>
-<Scheme
-   LastUpgradeVersion = "1130"
-   version = "1.3">
-   <BuildAction
-      parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
-      <BuildActionEntries>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "UngalVazhikatti.app"
-               BlueprintName = "UngalVazhikatti"
-               ReferencedContainer = "container:UngalVazhikatti.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-      </BuildActionEntries>
-   </BuildAction>
-   <TestAction
-      buildConfiguration = "Debug"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES">
-      <Testables>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "UngalVazhikattiTests.xctest"
-               BlueprintName = "UngalVazhikattiTests"
-               ReferencedContainer = "container:UngalVazhikatti.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-      </Testables>
-   </TestAction>
-   <LaunchAction
-      buildConfiguration = "Debug"
-      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
-      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      launchStyle = "0"
-      useCustomWorkingDirectory = "NO"
-      ignoresPersistentStateOnLaunch = "NO"
-      debugDocumentVersioning = "YES"
-      debugServiceExtension = "internal"
-      allowLocationSimulation = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "UngalVazhikatti.app"
-            BlueprintName = "UngalVazhikatti"
-            ReferencedContainer = "container:UngalVazhikatti.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </LaunchAction>
-   <ProfileAction
-      buildConfiguration = "Release"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      savedToolIdentifier = ""
-      useCustomWorkingDirectory = "NO"
-      debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "UngalVazhikatti.app"
-            BlueprintName = "UngalVazhikatti"
-            ReferencedContainer = "container:UngalVazhikatti.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
-   </ProfileAction>
-   <AnalyzeAction
-      buildConfiguration = "Debug">
-   </AnalyzeAction>
-   <ArchiveAction
-      buildConfiguration = "Release"
-      revealArchiveInOrganizer = "YES">
-   </ArchiveAction>
-</Scheme>
-</file>
-
-<file path="mobile/ios/UngalVazhikatti.xcodeproj/project.pbxproj">
-// !$*UTF8*$!
-{
-	archiveVersion = 1;
-	classes = {
-	};
-	objectVersion = 54;
-	objects = {
-
-/* Begin PBXBuildFile section */
-		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-/* End PBXBuildFile section */
-
-/* Begin PBXFileReference section */
-		13B07F961A680F5B00A75B9A /* UngalVazhikatti.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UngalVazhikatti.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = UngalVazhikatti/Images.xcassets; sourceTree = "<group>"; };
-		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = UngalVazhikatti/Info.plist; sourceTree = "<group>"; };
-		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = UngalVazhikatti/SplashScreen.storyboard; sourceTree = "<group>"; };
-		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
-		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = UngalVazhikatti/AppDelegate.swift; sourceTree = "<group>"; };
-		F11748442D0722820044C1D9 /* UngalVazhikatti-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "UngalVazhikatti-Bridging-Header.h"; path = "UngalVazhikatti/UngalVazhikatti-Bridging-Header.h"; sourceTree = "<group>"; };
-/* End PBXFileReference section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXGroup section */
-		13B07FAE1A68108700A75B9A /* UngalVazhikatti */ = {
-			isa = PBXGroup;
-			children = (
-				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
-				F11748442D0722820044C1D9 /* UngalVazhikatti-Bridging-Header.h */,
-				BB2F792B24A3F905000567C9 /* Supporting */,
-				13B07FB51A68108700A75B9A /* Images.xcassets */,
-				13B07FB61A68108700A75B9A /* Info.plist */,
-				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-			);
-			name = UngalVazhikatti;
-			sourceTree = "<group>";
-		};
-		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Libraries;
-			sourceTree = "<group>";
-		};
-		83CBB9F61A601CBA00E9B192 = {
-			isa = PBXGroup;
-			children = (
-				13B07FAE1A68108700A75B9A /* UngalVazhikatti */,
-				832341AE1AAA6A7D00B99B32 /* Libraries */,
-				83CBBA001A601CBA00E9B192 /* Products */,
-				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-			);
-			indentWidth = 2;
-			sourceTree = "<group>";
-			tabWidth = 2;
-			usesTabs = 0;
-		};
-		83CBBA001A601CBA00E9B192 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				13B07F961A680F5B00A75B9A /* UngalVazhikatti.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		BB2F792B24A3F905000567C9 /* Supporting */ = {
-			isa = PBXGroup;
-			children = (
-				BB2F792C24A3F905000567C9 /* Expo.plist */,
-			);
-			name = Supporting;
-			path = UngalVazhikatti/Supporting;
-			sourceTree = "<group>";
-		};
-/* End PBXGroup section */
-
-/* Begin PBXNativeTarget section */
-		13B07F861A680F5B00A75B9A /* UngalVazhikatti */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "UngalVazhikatti" */;
-			buildPhases = (
-				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				13B07F871A680F5B00A75B9A /* Sources */,
-				13B07F8C1A680F5B00A75B9A /* Frameworks */,
-				13B07F8E1A680F5B00A75B9A /* Resources */,
-				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = UngalVazhikatti;
-			productName = UngalVazhikatti;
-			productReference = 13B07F961A680F5B00A75B9A /* UngalVazhikatti.app */;
-			productType = "com.apple.product-type.application";
-		};
-/* End PBXNativeTarget section */
-
-/* Begin PBXProject section */
-		83CBB9F71A601CBA00E9B192 /* Project object */ = {
-			isa = PBXProject;
-			attributes = {
-				LastUpgradeCheck = 1130;
-				TargetAttributes = {
-					13B07F861A680F5B00A75B9A = {
-						LastSwiftMigration = 1250;
-					};
-				};
-			};
-			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "UngalVazhikatti" */;
-			compatibilityVersion = "Xcode 3.2";
-			developmentRegion = en;
-			hasScannedForEncodings = 0;
-			knownRegions = (
-				en,
-				Base,
-			);
-			mainGroup = 83CBB9F61A601CBA00E9B192;
-			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
-			projectDirPath = "";
-			projectRoot = "";
-			targets = (
-				13B07F861A680F5B00A75B9A /* UngalVazhikatti */,
-			);
-		};
-/* End PBXProject section */
-
-/* Begin PBXResourcesBuildPhase section */
-		13B07F8E1A680F5B00A75B9A /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
-				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
-				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/.xcode.env",
-				"$(SRCROOT)/.xcode.env.local",
-			);
-			name = "Bundle React Native code and images";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
-		};
-		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-UngalVazhikatti-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
-		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-UngalVazhikatti/Pods-UngalVazhikatti-resources.sh",
-				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/EXUpdates/EXUpdates.bundle",
-				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/RCTI18nStrings.bundle",
-			);
-			name = "[CP] Copy Pods Resources";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXUpdates.bundle",
-				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RCTI18nStrings.bundle",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-UngalVazhikatti/Pods-UngalVazhikatti-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
-
-/* Begin PBXSourcesBuildPhase section */
-		13B07F871A680F5B00A75B9A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXSourcesBuildPhase section */
-
-/* Begin XCBuildConfiguration section */
-		13B07F941A680F5B00A75B9A /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_BITCODE = NO;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"$(inherited)",
-					"FB_SONARKIT_ENABLED=1",
-				);
-				INFOPLIST_FILE = UngalVazhikatti/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-					"-lc++",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vazhikatti.app";
-				PRODUCT_NAME = "UngalVazhikatti";
-				SWIFT_OBJC_BRIDGING_HEADER = "UngalVazhikatti/UngalVazhikatti-Bridging-Header.h";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.0;
-				VERSIONING_SYSTEM = "apple-generic";
-				TARGETED_DEVICE_FAMILY = "1,2";
-				CODE_SIGN_ENTITLEMENTS = UngalVazhikatti/UngalVazhikatti.entitlements;
-			};
-			name = Debug;
-		};
-		13B07F951A680F5B00A75B9A /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				INFOPLIST_FILE = UngalVazhikatti/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-ObjC",
-					"-lc++",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.vazhikatti.app";
-				PRODUCT_NAME = "UngalVazhikatti";
-				SWIFT_OBJC_BRIDGING_HEADER = "UngalVazhikatti/UngalVazhikatti-Bridging-Header.h";
-				SWIFT_VERSION = 5.0;
-				VERSIONING_SYSTEM = "apple-generic";
-				TARGETED_DEVICE_FAMILY = "1,2";
-				CODE_SIGN_ENTITLEMENTS = UngalVazhikatti/UngalVazhikatti.entitlements;
-			};
-			name = Release;
-		};
-		83CBBA201A601CBA00E9B192 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				COPY_PHASE_STRIP = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu99;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					/usr/lib/swift,
-					"$(inherited)",
-				);
-				LIBRARY_SEARCH_PATHS = "\"$(inherited)\"";
-				MTL_ENABLE_DEBUG_INFO = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = iphoneos;
-			};
-			name = Debug;
-		};
-		83CBBA211A601CBA00E9B192 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
-				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
-				CLANG_CXX_LIBRARY = "libc++";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
-				COPY_PHASE_STRIP = YES;
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu99;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
-				LD_RUNPATH_SEARCH_PATHS = (
-					/usr/lib/swift,
-					"$(inherited)",
-				);
-				LIBRARY_SEARCH_PATHS = "\"$(inherited)\"";
-				MTL_ENABLE_DEBUG_INFO = NO;
-				SDKROOT = iphoneos;
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-/* End XCBuildConfiguration section */
-
-/* Begin XCConfigurationList section */
-		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "UngalVazhikatti" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				13B07F941A680F5B00A75B9A /* Debug */,
-				13B07F951A680F5B00A75B9A /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "UngalVazhikatti" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				83CBBA201A601CBA00E9B192 /* Debug */,
-				83CBBA211A601CBA00E9B192 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-/* End XCConfigurationList section */
-	};
-	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
-}
-</file>
-
-<file path="mobile/ios/.gitignore">
-# OSX
-#
-.DS_Store
-
-# Xcode
-#
-build/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata
-*.xccheckout
-*.moved-aside
-DerivedData
-*.hmap
-*.ipa
-*.xcuserstate
-project.xcworkspace
-.xcode.env.local
-
-# Bundle artifacts
-*.jsbundle
-
-# CocoaPods
-/Pods/
-</file>
-
-<file path="mobile/ios/.xcode.env">
-# This `.xcode.env` file is versioned and is used to source the environment
-# used when running script phases inside Xcode.
-# To customize your local environment, you can create an `.xcode.env.local`
-# file that is not versioned.
-
-# NODE_BINARY variable contains the PATH to the node executable.
-#
-# Customize the NODE_BINARY variable here.
-# For example, to use nvm with brew, add the following line
-# . "$(brew --prefix nvm)/nvm.sh" --no-use
-export NODE_BINARY=$(command -v node)
-</file>
-
-<file path="mobile/ios/Podfile">
-require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
-require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
-
-require 'json'
-podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
-
-def ccache_enabled?(podfile_properties)
-  # Environment variable takes precedence
-  return ENV['USE_CCACHE'] == '1' if ENV['USE_CCACHE']
-  
-  # Fall back to Podfile properties
-  podfile_properties['apple.ccacheEnabled'] == 'true'
-end
-
-ENV['RCT_NEW_ARCH_ENABLED'] ||= '0' if podfile_properties['newArchEnabled'] == 'false'
-ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
-ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-ENV['RCT_USE_PREBUILT_RNCORE'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
-
-prepare_react_native_project!
-
-target 'UngalVazhikatti' do
-  use_expo_modules!
-
-  if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
-    config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
-  else
-    config_command = [
-      'npx',
-      'expo-modules-autolinking',
-      'react-native-config',
-      '--json',
-      '--platform',
-      'ios'
-    ]
-  end
-
-  config = use_native_modules!(config_command)
-
-  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
-
-  use_react_native!(
-    :path => config[:reactNativePath],
-    :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
-    # An absolute path to your application root.
-    :app_path => "#{Pod::Config.instance.installation_root}/..",
-    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
-  )
-
-  post_install do |installer|
-    react_native_post_install(
-      installer,
-      config[:reactNativePath],
-      :mac_catalyst_enabled => false,
-      :ccache_enabled => ccache_enabled?(podfile_properties),
-    )
-  end
-end
-</file>
-
-<file path="mobile/ios/Podfile.properties.json">
-{
-  "expo.jsEngine": "hermes",
-  "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true",
-  "newArchEnabled": "false"
-}
-</file>
-
-<file path="mobile/src/lib/api/navigation.js">
-import Constants from "expo-constants";
-
-// Updated to use the correct config path for SDK 54
-const API_BASE = Constants.expoConfig?.extra?.API_BASE_URL || "";
-
-export async function fetchPath(hospitalId, startNodeId, endNodeId, userEmail, token) {
-  const body = { hospitalId, startNodeId, endNodeId };
-  if (userEmail) body.userEmail = userEmail;
-
-  const res = await fetch(`${API_BASE}/api/navigation/shortest-path`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData?.error || "Failed to fetch path");
-  }
-
-  return res.json();
-}
-</file>
-
-<file path="mobile/src/lib/sensors/deadReckoning.js">
-import { Accelerometer, Gyroscope, Magnetometer } from "expo-sensors";
-
-const STEP_LENGTH_METERS = 0.75;
-const STEP_THRESHOLD = 1.5;
-
-let currentPosition = { x: 0, y: 0, floor: 1 };
-let currentHeading = 0;
-let lastAcceleration = 0;
-
-function detectStep(z) {
-  const isStep = z > STEP_THRESHOLD && lastAcceleration <= STEP_THRESHOLD;
-  lastAcceleration = z;
-  return isStep;
-}
-
-function calculateHeading(magData) {
-  const { x, y } = magData;
-  let heading = Math.atan2(y, x) * (180 / Math.PI);
-  if (heading < 0) heading += 360;
-  return heading;
-}
-
-export function updatePosition(accelData, gyroData, magData) {
-  if (magData) currentHeading = calculateHeading(magData);
-
-  if (accelData && detectStep(accelData.z)) {
-    const dirRad = currentHeading * (Math.PI / 180);
-    currentPosition.x += STEP_LENGTH_METERS * Math.cos(dirRad);
-    currentPosition.y += STEP_LENGTH_METERS * Math.sin(dirRad);
-  }
-
-  return { ...currentPosition, heading: currentHeading };
-}
-
-export function qrCodeCorrection(x, y, floor) {
-  currentPosition = { x, y, floor };
-  console.log("Position corrected via QR:", currentPosition);
-  return currentPosition;
-}
-
-export function startSensorTracking(onUpdate) {
-  let accelData, gyroData, magData;
-
-  const accelSub = Accelerometer.addListener((data) => {
-    accelData = data;
-    const pos = updatePosition(accelData, gyroData, magData);
-    onUpdate(pos);
-  });
-
-  const gyroSub = Gyroscope.addListener((data) => (gyroData = data));
-  const magSub = Magnetometer.addListener((data) => (magData = data));
-
-  Accelerometer.setUpdateInterval(200);
-  Gyroscope.setUpdateInterval(200);
-  Magnetometer.setUpdateInterval(200);
-
-  return () => {
-    accelSub.remove();
-    gyroSub.remove();
-    magSub.remove();
-  };
-}
-</file>
-
-<file path="mobile/src/screens/NavigationScreen.js">
-import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Alert } from "react-native";
-import { startSensorTracking, qrCodeCorrection } from "../lib/sensors/deadReckoning";
-import { fetchPath } from "../lib/api/navigation";
-
-export default function NavigationScreen({ route }) {
-  const { hospitalId, initialStartNodeId, floorId, userEmail } = route.params;
-
-  const [position, setPosition] = useState({ x: 0, y: 0, floor: parseInt(floorId || 1) });
-  const [path, setPath] = useState([]);
-
-  useEffect(() => {
-    qrCodeCorrection(position.x, position.y, position.floor);
-
-    const cleanup = startSensorTracking((newPosition) => setPosition(newPosition));
-
-    fetchPath(hospitalId, initialStartNodeId, "destinationNode", userEmail)
-      .then((res) => setPath(res.path || []))
-      .catch((err) => Alert.alert("Access Denied", err.message));
-
-    return cleanup;
-  }, []);
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.header}>HospiNav - Real-Time Navigation</Text>
-
-      <View style={styles.mapArea}>
-        <View style={styles.dot} />
-        <Text style={styles.label}>You Are Here</Text>
-        <Text style={styles.coords}>X: {position.x.toFixed(2)}m</Text>
-        <Text style={styles.coords}>Y: {position.y.toFixed(2)}m</Text>
-        <Text style={styles.coords}>Floor: {position.floor}</Text>
-        <Text style={styles.coords}>Heading: {position.heading?.toFixed(0)}°</Text>
-      </View>
-
-      <View style={styles.instructions}>
-        {path.length ? (
-          path.map((step, i) => (
-            <Text key={i} style={styles.instructionText}>
-              {step}
-            </Text>
-          ))
-        ) : (
-          <Text style={styles.instructionText}>📍 No path available</Text>
-        )}
-      </View>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#f5f5f5" },
-  header: { fontSize: 24, fontWeight: "bold", marginBottom: 20 },
-  mapArea: {
-    flex: 1,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 10,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  dot: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#3b82f6", marginBottom: 10 },
-  label: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-  coords: { fontSize: 14, color: "#666", marginBottom: 5 },
-  instructions: { marginTop: 20, padding: 15, backgroundColor: "#e6ffe6", borderRadius: 10 },
-  instructionText: { fontSize: 16, marginBottom: 10 },
-});
-</file>
-
-<file path="mobile/src/screens/ScanQRScreen.js">
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Platform } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
-
-export default function ScanQRScreen() {
-  const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
-
-  useEffect(() => {
-    requestPermission();
-  }, []);
-
-  // 🚫 BLOCK WEB (important)
-  if (Platform.OS === "web") {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.text}>
-          QR scanning is not supported on Web.
-          Please use Expo Go on your mobile.
-        </Text>
-      </View>
-    );
-  }
-
-  if (!permission) {
-    return <View />;
-  }
-
-  if (!permission.granted) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.text}>Camera permission required</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        barcodeScannerSettings={{
-          barcodeTypes: ["qr"],
-        }}
-        onBarcodeScanned={({ data }) => {
-          if (!scanned) {
-            setScanned(true);
-            alert(`QR Code: ${data}`);
-          }
-        }}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
-  text: {
-    fontSize: 16,
-    textAlign: "center",
-  },
-});
-</file>
-
-<file path="mobile/.env.example">
-EXPO_PUBLIC_BACKEND_URL=http://192.168.29.129:3000
-
-
-EXPO_PUBLIC_FRONTEND_URL=http://192.168.29.129:3001
-</file>
-
-<file path="mobile/app.config.js">
-import "dotenv/config";
-
-export default ({ config }) => ({
-  ...config,
-
-  name: "Ungal Vazhikatti",
-  slug: "vazhikatti",
-  version: "1.0.0",
-  orientation: "portrait",
-  userInterfaceStyle: "light",
-
-  icon: "./assets/icon.png",
-
-  // Deep linking scheme
-  scheme: "vazhikatti",
-
-  // Disable new architecture (FIXES PlatformConstants error)
-  newArchEnabled: false,
-
-  splash: {
-    image: "./assets/splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#ffffff"
-  },
-
-  ios: {
-    bundleIdentifier: "com.vazhikatti.app",
-    supportsTablet: true,
-    buildNumber: "1"
-  },
-
-  android: {
-    package: "com.vazhikatti.app",
-    versionCode: 1,
-    adaptiveIcon: {
-      foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#ffffff"
-    },
-    permissions: [
-      "CAMERA",
-      "ACCESS_FINE_LOCATION",
-      "ACCESS_COARSE_LOCATION",
-      "RECORD_AUDIO"
-    ]
-  },
-
-  web: {
-    favicon: "./assets/favicon.png",
-    bundler: "metro"
-  },
-
-  plugins: [
-    "expo-asset",
-    [
-      "expo-camera",
-      {
-        cameraPermission: "Allow Ungal Vazhikatti to access your camera",
-        microphonePermission: "Allow Ungal Vazhikatti to access your microphone",
-        recordAudioAndroid: true
-      }
-    ]
-  ],
-
-  extra: {
-    API_BASE_URL: process.env.EXPO_PUBLIC_BACKEND_URL,
-    FRONTEND_URL: process.env.EXPO_PUBLIC_FRONTEND_URL,
-    ENV: "development",
-    eas: {
-      projectId: "18c54572-4af3-47c4-ace7-a858e3deee46"
-    }
-  }
-});
-</file>
-
-<file path="mobile/App.js">
-import { NavigationContainer } from "@react-navigation/native";
-import { createStackNavigator } from "@react-navigation/stack";
-import ScanQRScreen from "./src/screens/ScanQRScreen";
-import NavigationScreen from "./src/screens/NavigationScreen";
-
-const Stack = createStackNavigator();
-
-export default function App() {
-  return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="ScanQR">
-        <Stack.Screen
-          name="ScanQR"
-          component={ScanQRScreen}
-          options={{ title: "Scan Entrance QR" }}
-        />
-        <Stack.Screen
-          name="Navigation"
-          component={NavigationScreen}
-          options={{ title: "Navigate" }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
-}
-</file>
-
-<file path="mobile/eas.json">
-{
-  "build": {
-    "preview": {
-      "android": {
-        "buildType": "apk"
-      }
-    }
-  }
-}
-</file>
-
-<file path="mobile/jsconfig.json">
-{
-  "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
-  }
-}
-</file>
-
-<file path="mobile/package.json">
-{
-  "name": "hospinav-mobile",
-  "version": "1.0.0",
-  "main": "node_modules/expo/AppEntry.js",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
-  },
-  "dependencies": {
-    "@react-navigation/native": "^6.1.7",
-    "@react-navigation/stack": "^6.3.17",
-    "dotenv": "^17.2.3",
-    "expo": "^54.0.30",
-    "expo-asset": "~12.0.12",
-    "expo-camera": "~17.0.10",
-    "expo-dev-client": "~6.0.20",
-    "expo-linking": "~8.0.11",
-    "expo-sensors": "~15.0.8",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-native": "^0.72.3",
-    "react-native-web": "^0.21.0"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.26.0",
-    "@types/react": "^18.2.79",
-    "typescript": "~5.1.3"
-  }
-}
-</file>
-
 <file path="PWA/app/globals.css">
 @tailwind base;
 @tailwind components;
@@ -8831,20 +5994,6 @@ export default function CameraScanner() {
   }, []);
 
   return <video ref={ref} style={{ width: "100%" }} />;
-}
-</file>
-
-<file path="PWA/components/FloorDetector.tsx">
-"use client";
-import { useEffect } from "react";
-
-export default function FloorDetector({ onFloor }: { onFloor: (f: number) => void }) {
-  useEffect(() => {
-    const saved = localStorage.getItem("floor");
-    if (saved) onFloor(Number(saved));
-  }, []);
-
-  return null;
 }
 </file>
 
@@ -9426,7 +6575,7 @@ fetchPath(hospitalId, startPosition.nodeId, 'destinationNode', userEmail)
 5. **Fix Other Issues** (Improves robustness)
 </file>
 
-<file path="backend/src/app/api/hospital/[hospitalId]/floor/[floorId]/pois/route.ts">
+<file path="backend/src/app/api/hospital/[hospitalId]/locations/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
@@ -9436,119 +6585,123 @@ function cors(origin?: string) {
     "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Methods": "GET,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Credentials": "true",
   };
 }
 
-/* ---------- GET POIs ---------- */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { hospitalId: string; floorId: string } }
-) {
-  const origin = req.headers.get("origin") || undefined;
-
-  try {
-    const { hospitalId, floorId } = params;
-
-    /* 1️⃣ Validate floor */
-    const floor = await prisma.floor.findFirst({
-      where: {
-        id: floorId,
-        hospitalId,
-      },
-    });
-
-    if (!floor) {
-      return NextResponse.json(
-        { error: "Floor not found" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    /* 2️⃣ Get existing Map (NO CREATE IN GET) */
-    const mapRecord = await prisma.map.findFirst({
-      where: {
-        hospitalId: floor.hospitalId,
-      },
-    });
-
-    if (!mapRecord) {
-      return NextResponse.json(
-        { error: "Map not created yet for this hospital" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    /* 3️⃣ Extract POIs from graphData */
-    const points =
-      (floor.graphData as any)?.pointsOfInterest ?? [];
-
-    const enrichedPOIs: any[] = [];
-
-    for (const poi of points) {
-      if (
-        !poi?.name ||
-        poi.x === undefined ||
-        poi.y === undefined
-      ) {
-        continue;
-      }
-
-      /* 4️⃣ Check if POI already exists */
-      let dbPoi = await prisma.poi.findFirst({
-        where: {
-          mapId: mapRecord.id,
-          name: poi.name,
-        },
-      });
-
-      /* 5️⃣ Create POI if missing */
-      if (!dbPoi) {
-        dbPoi = await prisma.poi.create({
-          data: {
-            name: poi.name,
-            type: poi.type || "general",
-            x: Number(poi.x),
-            y: Number(poi.y),
-            mapId: mapRecord.id,
-            qrId: crypto.randomUUID(),
-
-            // ✅ REQUIRED FIELD (FIXED)
-            nodeId: poi.nodeId ?? crypto.randomUUID(),
-          },
-        });
-      }
-
-      enrichedPOIs.push({
-        ...poi,
-        dbId: dbPoi.id,
-        qrId: dbPoi.qrId,
-        nodeId: dbPoi.nodeId,
-      });
-    }
-
-    return NextResponse.json(enrichedPOIs, {
-      headers: cors(origin),
-    });
-  } catch (error: any) {
-    console.error("POI API ERROR:", error);
-
-    return NextResponse.json(
-      {
-        error: "Internal Server Error",
-        details: error.message,
-      },
-      { status: 500, headers: cors(origin) }
-    );
-  }
-}
-
-/* ---------- OPTIONS ---------- */
 export async function OPTIONS(req: NextRequest) {
   return new NextResponse(null, {
     status: 204,
     headers: cors(req.headers.get("origin") || undefined),
   });
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { hospitalId: string } }
+) {
+  try {
+    const origin = req.headers.get("origin") || undefined;
+    const { hospitalId } = params;
+
+    if (!hospitalId) {
+      return NextResponse.json(
+        { error: "Hospital ID missing" },
+        { status: 400, headers: cors(origin) }
+      );
+    }
+
+    console.log("📌 Hospital ID received:", hospitalId);
+
+    /* ---------- 1️⃣ Validate hospital ---------- */
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: hospitalId },
+      select: { id: true, name: true },
+    });
+
+    if (!hospital) {
+      return NextResponse.json(
+        { error: "Hospital not found" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    /* ---------- 2️⃣ Fetch maps ---------- */
+    const maps = await prisma.map.findMany({
+      where: { hospitalId },
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+      },
+    });
+
+    console.log("🗺️ Maps found:", maps.length);
+
+    if (maps.length === 0) {
+      return NextResponse.json(
+        {
+          hospitalId,
+          hospitalName: hospital.name,
+          locations: [],
+          message: "No maps found for this hospital",
+        },
+        { status: 200, headers: cors(origin) }
+      );
+    }
+
+    const mapIds = maps.map((m) => m.id);
+
+    /* ---------- 3️⃣ Fetch POIs safely ---------- */
+    const pois = await prisma.poi.findMany({
+      where: {
+        mapId: { in: mapIds }, // ✅ NO LEFT JOIN TRAP
+      },
+      select: {
+        id: true,
+        name: true,
+        qrId: true,
+        type: true,
+        x: true,
+        y: true,
+        nodeId: true,
+        mapId: true,
+        floor: {
+          select: {
+            id: true,
+            level: true,
+          },
+        },
+      },
+    });
+
+    console.log("📍 POIs found:", pois.length);
+
+    /* ---------- 4️⃣ Group POIs by map ---------- */
+    const locations = maps.map((map) => ({
+      mapId: map.id,
+      mapName: map.name,
+      imageUrl: map.imageUrl,
+      pois: pois.filter((p) => p.mapId === map.id),
+    }));
+
+    return NextResponse.json(
+      {
+        hospitalId,
+        hospitalName: hospital.name,
+        totalMaps: maps.length,
+        totalPois: pois.length,
+        locations,
+      },
+      { status: 200, headers: cors(origin) }
+    );
+  } catch (error) {
+    console.error("❌ Locations API Error:", error);
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
+  }
 }
 </file>
 
@@ -9625,199 +6778,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: "Database sync failed" },
       { status: 500, headers: corsHeaders(origin) }
-    );
-  }
-}
-</file>
-
-<file path="backend/src/app/api/navigation/shortest-path/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import { calculateAStarPath } from "@/lib/services/a-star.service";
-import { protectRoute } from "@/lib/auth/middleware";
-
-async function handler(req: NextRequest, userId: string) {
-  try {
-    const body = await req.json();
-    console.log("NAV PAYLOAD:", body);
-    const { floorId, startNodeId, endNodeId, hospitalId } = body;
-
-    if (!floorId || !startNodeId || !endNodeId || !hospitalId) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
-
-    /* 1️⃣ Fetch floor safely (by ID or level) */
-    const isUUID = typeof floorId === "string" && floorId.length > 10;
-
-    const floorData = await prisma.floor.findFirst({
-      where: {
-        hospitalId,
-        ...(isUUID
-          ? { id: floorId }
-          : { level: Number(floorId) }),
-      },
-      select: {
-        id: true,
-        graphData: true,
-      },
-    });
-
-    if (!floorData || !floorData.graphData) {
-      return NextResponse.json(
-        { error: "Floor graph data not found" },
-        { status: 404 }
-      );
-    }
-
-    const rawData = floorData.graphData as any;
-    const routes = rawData.routes || [];
-
-    if (!Array.isArray(routes) || routes.length === 0) {
-      return NextResponse.json(
-        { error: "No routes defined in graph data" },
-        { status: 404 }
-      );
-    }
-
-    /* 2️⃣ Build node set */
-    const validNodeIds = new Set<string>();
-
-    routes.forEach((r: any) => {
-      if (r.from !== undefined) validNodeIds.add(String(r.from));
-      if (r.to !== undefined) validNodeIds.add(String(r.to));
-    });
-
-    const startId = String(startNodeId);
-    const endId = String(endNodeId);
-
-    if (!validNodeIds.has(startId) || !validNodeIds.has(endId)) {
-      return NextResponse.json(
-        {
-          error: "Location not found on map graph",
-          details: {
-            startFound: validNodeIds.has(startId),
-            endFound: validNodeIds.has(endId),
-          },
-        },
-        { status: 404 }
-      );
-    }
-
-    /* 3️⃣ Convert to A* compatible graph */
-    const edges = routes.map((r: any) => ({
-      source: String(r.from),
-      target: String(r.to),
-      weight: Number(r.distance) || 1,
-    }));
-
-    const graphForAlgorithm = {
-      nodes: Array.from(validNodeIds).map((id) => ({ id })),
-      edges,
-    };
-
-    /* 4️⃣ Run A* */
-    const path = calculateAStarPath(
-      graphForAlgorithm,
-      startId,
-      endId
-    );
-
-    if (!path || path.length === 0) {
-      return NextResponse.json(
-        { error: "No path found between nodes" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ path });
-
-  } catch (error: any) {
-    console.error("🔥 SHORTEST PATH ERROR:", error);
-    return NextResponse.json(
-      { error: "Internal Server Error", details: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-/* 🔐 Auth wrapper */
-export const POST =
-  process.env.NODE_ENV === "development"
-    ? async (req: NextRequest) => handler(req, "dev-user")
-    : protectRoute(handler);
-</file>
-
-<file path="backend/src/app/api/scan/[qrId]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-
-/* ---------- CORS ---------- */
-function cors(origin?: string) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-}
-
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, {
-    status: 204,
-    headers: cors(req.headers.get("origin") || undefined),
-  });
-}
-
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { qrId: string } }
-) {
-  try {
-    const origin = req.headers.get("origin") || undefined;
-    const { qrId } = params;
-
-    if (!qrId) {
-      return NextResponse.json(
-        { error: "QR ID missing" },
-        { status: 400, headers: cors(origin) }
-      );
-    }
-
-    const poi = await prisma.poi.findUnique({
-      where: { qrId },
-      include: {
-        map: {
-          select: {
-            hospitalId: true, // ✅ EXISTS
-          },
-        },
-      },
-    });
-
-    if (!poi) {
-      return NextResponse.json(
-        { error: "Location QR not recognized" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    return NextResponse.json(
-      {
-        nodeId: poi.nodeId,
-        locationName: poi.name,
-        floorId: "1", // ✅ TEMP FIX (no floor column yet)
-        hospitalId: poi.map?.hospitalId,
-      },
-      { status: 200, headers: cors(origin) }
-    );
-  } catch (err) {
-    console.error("Scan API Error:", err);
-
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
     );
   }
 }
@@ -10750,6 +7710,39 @@ function MobileLink({
 }
 </file>
 
+<file path="frontend/package.json">
+{
+  "name": "hospinav-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "@tailwindcss/typography": "^0.5.10",
+    "jose": "^6.1.3",
+    "lucide-react": "^0.276.0",
+    "next": "^14.2.35",
+    "qrcode.react": "^4.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-sparklines": "^1.7.0",
+    "recharts": "^2.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.2",
+    "@types/react": "18.3.27",
+    "autoprefixer": "^10.4.15",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "5.9.3"
+  }
+}
+</file>
+
 <file path="PWA/components/Compass.tsx">
 "use client";
 
@@ -10805,130 +7798,39 @@ export default function Compass() {
 }
 </file>
 
-<file path="PWA/components/NavigationSteps.tsx">
+<file path="PWA/components/FloorDetector.tsx">
 "use client";
 
 import { useEffect, useState } from "react";
-import { Navigation, MapPin, Loader2 } from "lucide-react";
 
-interface Props {
-  hospitalId:string;
-  startNodeId?: string;
-  endNodeId?: string;
-  floorId?: string;
+interface FloorDetectorProps {
+  onFloor: (floor: number) => void;
+  defaultFloor?: number; // optional fallback
 }
 
-console.log("NAV PAYLOAD:", {
-  hospitalId,
-  floorId,
-  startNodeId,
-  endNodeId,
-});
-
-
-export default function NavigationSteps({
-  startNodeId,
-  endNodeId,
-  floorId,
-}: Props) {
-  const [steps, setSteps] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+export default function FloorDetector({ onFloor, defaultFloor = 1 }: FloorDetectorProps) {
+  const [currentFloor, setCurrentFloor] = useState<number>(defaultFloor);
 
   useEffect(() => {
-    if (!startNodeId || !endNodeId || !floorId) {
-      setSteps([]);
-      return;
+    const saved = localStorage.getItem("floor");
+    if (saved) {
+      const f = Number(saved);
+      setCurrentFloor(f);
+      onFloor(f);
+    } else {
+      localStorage.setItem("floor", defaultFloor.toString());
+      onFloor(defaultFloor);
     }
+  }, [defaultFloor, onFloor]);
 
-    const fetchRoute = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/navigation/shortest-path", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hospitalId, floorId:floorId, startNodeId: startNodeId, endNodeId:endNodeId }),
-        });
+  // ✅ Optional: allow dynamic floor switching via JS
+  const switchFloor = (floor: number) => {
+    setCurrentFloor(floor);
+    localStorage.setItem("floor", floor.toString());
+    onFloor(floor);
+  };
 
-        const data = await res.json();
-        setSteps(Array.isArray(data?.instructions) ? data.instructions : []);
-      } catch (err) {
-        console.error("Navigation error:", err);
-        setSteps([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRoute();
-  }, [startNodeId, endNodeId, floorId]);
-
-  /* ---------- LOADING ---------- */
-  if (loading) {
-    return (
-      <div className="flex items-center gap-3 px-2 py-3">
-        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-        <span className="text-sm text-slate-300">Calculating route…</span>
-      </div>
-    );
-  }
-
-  /* ---------- IDLE ---------- */
-  if (!startNodeId || !endNodeId) {
-    return (
-      <div className="px-2 py-3 text-sm text-slate-400">
-        Awaiting navigation input
-      </div>
-    );
-  }
-
-  /* ---------- NO PATH ---------- */
-  if (steps.length === 0) {
-    return (
-      <div className="px-2 py-3 text-sm text-slate-400">
-        No available route on this floor
-      </div>
-    );
-  }
-
-  /* ---------- ACTIVE ---------- */
-  return (
-    <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar py-1">
-      {steps.map((text, i) => {
-        const isLast = i === steps.length - 1;
-
-        return (
-          <div
-            key={i}
-            className="
-              snap-center shrink-0 w-[80%]
-              bg-slate-900/70 backdrop-blur
-              border border-white/5
-              rounded-2xl
-              px-4 py-3
-              flex gap-4
-            "
-          >
-            <div className="flex flex-col items-center gap-1 pt-1">
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center
-                  ${isLast ? "bg-green-500/15 text-green-400" : "bg-blue-500/15 text-blue-400"}
-                `}
-              >
-                {isLast ? <MapPin size={18} /> : <Navigation size={18} />}
-              </div>
-              <span className="text-[9px] text-slate-500 font-semibold">
-                {isLast ? "END" : `STEP ${i + 1}`}
-              </span>
-            </div>
-
-            <p className="text-sm text-white font-medium leading-snug">
-              {text}
-            </p>
-          </div>
-        );
-      })}
-    </div>
-  );
+  return null; // still invisible in UI
 }
 </file>
 
@@ -11046,8 +7948,715 @@ export default function QRAnchorScanner({ onDetect }: Props) {
 }
 </file>
 
+<file path="backend/src/app/api/hospital/[hospitalId]/floor/[floorId]/pois/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+/* ---------- CORS ---------- */
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+/* ---------- GET POIs ---------- */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { hospitalId: string; floorId: string } }
+) {
+  const origin = req.headers.get("origin") || undefined;
+
+  try {
+    const { hospitalId, floorId } = params;
+
+    /* 1️⃣ Validate floor */
+    const floor = await prisma.floor.findFirst({
+      where: {
+        id: floorId,
+        hospitalId,
+      },
+    });
+
+    if (!floor) {
+      return NextResponse.json(
+        { error: "Floor not found" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    /* 2️⃣ Get existing Map */
+    const mapRecord = await prisma.map.findFirst({
+      where: {
+        hospitalId: floor.hospitalId,
+      },
+    });
+
+    if (!mapRecord) {
+      return NextResponse.json(
+        { error: "Map not created yet for this hospital" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    /* 3️⃣ Extract POIs from graphData */
+    const points =
+      (floor.graphData as any)?.pointsOfInterest ?? [];
+
+    const enrichedPOIs: any[] = [];
+
+    for (const poi of points) {
+      if (!poi?.name || poi.x === undefined || poi.y === undefined) {
+        continue;
+      }
+
+      /* 4️⃣ Check if POI already exists */
+      let dbPoi = await prisma.poi.findFirst({
+        where: {
+          OR: [
+            poi.nodeId ? { nodeId: poi.nodeId } : undefined,
+            {
+              mapId: mapRecord.id,
+              name: poi.name,
+            },
+          ].filter(Boolean) as any,
+        },
+      });
+
+      /* 5️⃣ Create POI if missing */
+      if (!dbPoi) {
+        const safeNodeId =
+          poi.nodeId && poi.nodeId.trim() !== ""
+            ? poi.nodeId
+            : crypto.randomUUID();
+
+        try {
+          dbPoi = await prisma.poi.create({
+            data: {
+              name: poi.name,
+              type: poi.type || "general",
+              x: Number(poi.x),
+              y: Number(poi.y),
+              mapId: mapRecord.id,
+              floorId: floorId,
+              qrId: crypto.randomUUID(),
+              nodeId: safeNodeId,
+            },
+          });
+        } catch (e: any) {
+          // Handle unique constraint on nodeId
+          if (e.code === "P2002" && safeNodeId) {
+            dbPoi = await prisma.poi.findUnique({
+              where: { nodeId: safeNodeId },
+            });
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      if (!dbPoi) continue;
+
+      enrichedPOIs.push({
+        ...poi,
+        dbId: dbPoi.id,
+        qrId: dbPoi.qrId,
+        nodeId: dbPoi.nodeId,
+      });
+    }
+
+    return NextResponse.json(enrichedPOIs, {
+      headers: cors(origin),
+    });
+  } catch (error: any) {
+    console.error("POI API ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error: "Internal Server Error",
+        details: error.message,
+      },
+      { status: 500, headers: cors(origin) }
+    );
+  }
+}
+
+/* ---------- OPTIONS ---------- */
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+</file>
+
+<file path="backend/src/app/api/scan/[qrId]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+/* ---------- CORS ---------- */
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { qrId: string } }
+) {
+  try {
+    const origin = req.headers.get("origin") || undefined;
+    const { qrId } = params;
+
+    if (!qrId) {
+      return NextResponse.json(
+        { error: "QR ID missing" },
+        { status: 400, headers: cors(origin) }
+      );
+    }
+
+    const poi = await prisma.poi.findUnique({
+      where: { qrId },
+      include: {
+        map: {
+          select: {
+            hospitalId: true,
+          },
+        },
+        floor: {
+          select: {
+            id: true,       // fetch the actual floor ID
+            level: true,    // optional: floor number
+          },
+        },
+      },
+    });
+
+    if (!poi) {
+      return NextResponse.json(
+        { error: "Location QR not recognized" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        nodeId: poi.nodeId,
+        locationName: poi.name,
+        floorId: poi.floor?.id || null, // ✅ use actual floor ID
+        floorLevel: poi.floor?.level || null, // optional
+        hospitalId: poi.map?.hospitalId,
+      },
+      { status: 200, headers: cors(origin) }
+    );
+  } catch (err) {
+    console.error("Scan API Error:", err);
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+</file>
+
+<file path="backend/package.json">
+{
+  "name": "hospinav-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.3",
+    "next": "14.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "stripe": "^14.0.0",
+    "uuid": "^13.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.2.0",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "14.2.3",
+    "prisma": "5.22.0",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+</file>
+
+<file path="frontend/app/editor/page.tsx">
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import Layout from "@/components/Layout";
+import {
+  MapPin,
+  Plus,
+  Trash2,
+  MousePointer,
+  ArrowRight,
+  Save,
+  Zap,
+  Loader2,
+} from "lucide-react";
+
+/* ---------- TYPES ---------- */
+interface POI {
+  id: number;                 // UI local id
+  nodeId: string;             // GLOBAL graph id (used for routing)
+  name: string;
+  type: string;
+  x: number;
+  y: number;
+  floorId: string;            // Floor identifier
+}
+
+interface Route {
+  id: number;
+  from: string;               // nodeId
+  to: string;                 // nodeId
+  distance: number;
+  floorId: string;
+}
+
+interface MapData {
+  id: string | number;
+  name: string;
+  url?: string;
+}
+
+/* ---------- GRAPH VALIDATOR ---------- */
+function validateGraph(pois: POI[], routes: Route[]): string[] {
+  const errors: string[] = [];
+  const nodeIds = new Set<string>();
+
+  for (const poi of pois) {
+    if (nodeIds.has(poi.nodeId)) errors.push(`Duplicate nodeId: ${poi.name}`);
+    nodeIds.add(poi.nodeId);
+  }
+
+  for (const route of routes) {
+    const from = pois.find((p) => p.nodeId === route.from);
+    const to = pois.find((p) => p.nodeId === route.to);
+
+    if (!from || !to) {
+      errors.push("Route has missing node");
+      continue;
+    }
+
+    const isConnector =
+      ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(to.type);
+
+    if (from.floorId !== to.floorId && !isConnector) {
+      errors.push(`Illegal cross-floor route: ${from.name} → ${to.name}`);
+    }
+  }
+
+  return errors;
+}
+
+/* ---------- COMPONENT ---------- */
+export default function Editor() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [selectedMap, setSelectedMap] = useState<MapData | null>(null);
+  const [pointsOfInterest, setPointsOfInterest] = useState<POI[]>([]);
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [activeTool, setActiveTool] = useState("pointer");
+  const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
+  const [routeStartPOI, setRouteStartPOI] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isIdentifying, setIsIdentifying] = useState(false);
+  const [activeFloor, setActiveFloor] = useState<number>(1);
+
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const draggingPOIRef = useRef<POI | null>(null);
+
+  const poiTypes = [
+    { value: "entrance", label: "Entrance" },
+    { value: "exit", label: "Exit" },
+    { value: "medical", label: "Medical" },
+    { value: "service", label: "Service" },
+    { value: "emergency", label: "Emergency" },
+    { value: "general", label: "General" },
+    { value: "stairs", label: "Stairs" },
+    { value: "lift", label: "Lift" },
+  ];
+
+  /* ---------- AUTH + LOAD ---------- */
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const authRes = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`,
+          { credentials: "include" }
+        );
+
+        if (!authRes.ok) {
+          window.location.href = "/login";
+          return;
+        }
+
+        const user = await authRes.json();
+        setHospitalId(user.id);
+
+        const params = new URLSearchParams(window.location.search);
+        const mapId = params.get("mapId") || crypto.randomUUID();
+        const mapUrl = localStorage.getItem("uploadedMapUrl") || "";
+
+        setSelectedMap({
+          id: mapId,
+          name: "Hospital Floor Plan",
+          url: mapUrl,
+        });
+
+        const floorRes = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor?hospitalId=${user.id}`,
+          { credentials: "include" }
+        );
+
+        const floors = await floorRes.json();
+        const current = floors.find((f: any) => f.id === mapId);
+
+        if (current?.graphData) {
+          setPointsOfInterest(current.graphData.pointsOfInterest || []);
+          setRoutes(current.graphData.routes || []);
+        }
+
+        setIsAuthenticated(true);
+      } catch (err) {
+        console.error(err);
+        window.location.href = "/login";
+      }
+    };
+
+    init();
+  }, []);
+
+  /* ---------- SAVE (UPDATED WITH LONG-TERM SYNC) ---------- */
+  const handleSaveToDB = async () => {
+    if (!hospitalId || !selectedMap) return;
+
+    const errors = validateGraph(pointsOfInterest, routes);
+    if (errors.length) {
+      alert("Fix these issues before saving:\n\n" + errors.join("\n"));
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            hospitalId,
+            mapId: selectedMap.id,
+            name: selectedMap.name,
+            floorLevel: activeFloor, // CRITICAL: Tells backend which floor to sync POIs for
+            graphData: { pointsOfInterest, routes },
+          }),
+        }
+      );
+
+      const saved = await res.json();
+
+      if (saved.id) {
+        setSelectedMap((p) => (p ? { ...p, id: saved.id } : null));
+        window.history.replaceState(null, "", `/editor?mapId=${saved.id}`);
+        alert("Success: Floor graph and POI table are now in sync.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Save failed");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const triggerAutoIdentify = async () => {
+    if (!selectedMap?.id) return;
+    setIsIdentifying(true);
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            action: "IDENTIFY_AUTO",
+            mapId: selectedMap.id,
+            graphData: { nodes: pointsOfInterest },
+          }),
+        }
+      );
+      const autoPois = await res.json();
+      setPointsOfInterest((p) => [...p, ...autoPois]);
+    } finally {
+      setIsIdentifying(false);
+    }
+  };
+
+  const handlePOIClick = (poi: POI, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeTool === "delete") {
+      setPointsOfInterest((p) => p.filter((x) => x.id !== poi.id));
+      setRoutes((r) => r.filter((x) => x.from !== poi.nodeId && x.to !== poi.nodeId));
+      return;
+    }
+    if (activeTool === "route") {
+      if (routeStartPOI === null) {
+        setRouteStartPOI(poi.id);
+      } else {
+        const from = pointsOfInterest.find((p) => p.id === routeStartPOI);
+        if (!from) return;
+        const isConnector = ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(poi.type);
+        if (from.floorId !== poi.floorId && !isConnector) {
+          alert("Cross-floor routes require stairs or lift");
+          setRouteStartPOI(null);
+          return;
+        }
+        setRoutes((r) => [
+          ...r,
+          {
+            id: Date.now(),
+            from: from.nodeId,
+            to: poi.nodeId,
+            distance: from.floorId === poi.floorId ? Math.round(Math.hypot(poi.x - from.x, poi.y - from.y)) : 1,
+            floorId: from.floorId,
+          },
+        ]);
+        setRouteStartPOI(null);
+      }
+      return;
+    }
+    setSelectedPOI(poi);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!draggingPOIRef.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    setPointsOfInterest((p) =>
+      p.map((x) =>
+        x.id === draggingPOIRef.current!.id
+          ? { ...x, x: e.clientX - rect.left, y: e.clientY - rect.top }
+          : x
+      )
+    );
+  };
+
+  if (isAuthenticated === null)
+    return (
+      <div className="p-10 flex justify-center">
+        <Loader2 className="animate-spin text-indigo-600" />
+      </div>
+    );
+
+  return (
+    <Layout showSidebar={true}>
+      <div className="flex flex-col h-screen bg-white">
+        {/* HEADER */}
+        <div className="h-16 border-b flex items-center justify-between px-8 bg-white z-30 shrink-0">
+          <div className="flex items-center gap-4">
+            <h2 className="font-extrabold text-gray-900 tracking-tight">HOSPITAL MAP EDITOR</h2>
+            <span className="text-gray-300">|</span>
+            <span className="text-sm text-gray-500 font-medium">{selectedMap?.name}</span>
+          </div>
+
+          <div className="flex gap-3 items-center">
+            <div className="flex items-center gap-2 mr-2">
+              <span className="text-xs font-bold text-gray-400 uppercase">Floor</span>
+              <input
+                type="number"
+                value={activeFloor}
+                onChange={(e) => setActiveFloor(Number(e.target.value))}
+                className="w-16 px-2 py-1 text-sm font-bold border rounded-md text-center"
+              />
+            </div>
+            <button onClick={triggerAutoIdentify} disabled={isIdentifying} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 text-sm font-bold hover:bg-amber-100 disabled:opacity-50 transition-all">
+              {isIdentifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+              AI SCAN
+            </button>
+            <button onClick={handleSaveToDB} disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              SAVE CHANGES
+            </button>
+            <button 
+              onClick={() => window.location.href = `/qr-generator?hospitalId=${hospitalId}&mapId=${selectedMap?.id}`}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-black transition-all"
+            >
+              QR GEN
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* TOOLBAR */}
+          <div className="w-20 border-r flex flex-col items-center gap-6 py-8 bg-gray-50 shrink-0">
+            <Tool icon={<MousePointer size={22} />} label="Move" active={activeTool === "pointer"} onClick={() => setActiveTool("pointer")} />
+            <Tool icon={<Plus size={22} />} label="Add POI" active={activeTool === "poi"} onClick={() => setActiveTool("poi")} />
+            <Tool icon={<ArrowRight size={22} />} label="Add Route" active={activeTool === "route"} onClick={() => { setActiveTool("route"); setRouteStartPOI(null); }} />
+            <div className="w-10 h-px bg-gray-200 my-2" />
+            <Tool icon={<Trash2 size={22} />} label="Delete" active={activeTool === "delete"} onClick={() => setActiveTool("delete")} />
+          </div>
+
+          {/* EDITOR CANVAS */}
+          <div className="flex-1 p-8 bg-gray-100 overflow-auto flex justify-center items-start">
+            <div
+              ref={canvasRef}
+              onClick={(e) => {
+                if (activeTool === "poi") {
+                  const rect = canvasRef.current!.getBoundingClientRect();
+                  setPointsOfInterest(prev => [...prev, { 
+                    id: Date.now(), 
+                    nodeId: crypto.randomUUID(), // CRITICAL: Permanent ID for Database Sync
+                    name: `Room ${prev.length + 1}`, 
+                    type: "general", 
+                    x: e.clientX - rect.left, 
+                    y: e.clientY - rect.top,
+                    floorId: String(activeFloor)
+                  }]);
+                }
+              }}
+              onMouseMove={onMouseMove}
+              onMouseUp={() => { draggingPOIRef.current = null; }}
+              className="relative bg-white shadow-2xl rounded-xl border border-gray-200"
+              style={{ width: '1200px', height: '800px', cursor: activeTool === "poi" ? "crosshair" : "default" }}
+            >
+              {selectedMap?.url && (
+                <img 
+                  src={selectedMap.url} 
+                  className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-80 p-4" 
+                  alt="Floor plan"
+                />
+              )}
+
+              <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+                {routes.map(route => {
+                  const from = pointsOfInterest.find(p => p.nodeId === route.from);
+                  const to = pointsOfInterest.find(p => p.nodeId === route.to);
+                  if (!from || !to) return null;
+                  return (
+                    <line key={route.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#6366f1" strokeWidth="3" strokeDasharray="8,5" strokeLinecap="round" />
+                  );
+                })}
+              </svg>
+
+              {pointsOfInterest.filter(p => p.floorId === String(activeFloor)).map(poi => (
+                <div
+                  key={poi.id}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 z-20 cursor-pointer transition-all ${
+                    selectedPOI?.id === poi.id ? "scale-125" : "hover:scale-110"
+                  }`}
+                  style={{ left: poi.x, top: poi.y }}
+                  onMouseDown={(e) => { if(activeTool === "pointer") { draggingPOIRef.current = poi; e.preventDefault(); } }}
+                  onClick={(e) => handlePOIClick(poi, e)}
+                >
+                  <div className={`p-1.5 rounded-full border-2 ${
+                    routeStartPOI === poi.id ? "bg-green-500 border-white text-white animate-pulse" :
+                    selectedPOI?.id === poi.id ? "bg-indigo-600 border-white text-white shadow-lg" : 
+                    "bg-white border-gray-400 text-gray-600"
+                  }`}>
+                    <MapPin className="w-5 h-5" fill="currentColor" fillOpacity={0.2} />
+                  </div>
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-0.5 bg-gray-900/80 text-white text-[9px] font-bold uppercase rounded whitespace-nowrap">
+                    {poi.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* SIDEBAR PROPERTIES */}
+          <div className="w-80 border-l p-6 bg-white space-y-6 overflow-y-auto shrink-0">
+            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Elements</h3>
+            <div className="space-y-3">
+              {pointsOfInterest.map(poi => (
+                <div key={poi.id} onClick={() => setSelectedPOI(poi)} className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                  selectedPOI?.id === poi.id ? "bg-indigo-50 border-indigo-300" : "bg-white border-gray-100 hover:border-gray-200"
+                }`}>
+                  <div className="flex justify-between items-center mb-2">
+                    <input className="font-bold text-sm bg-transparent outline-none border-b border-transparent focus:border-indigo-400" value={poi.name} onChange={(e) => setPointsOfInterest(prev => prev.map(p => p.id === poi.id ? {...p, name: e.target.value} : p))} />
+                    <Trash2 size={14} className="text-gray-300 hover:text-red-500" onClick={() => setPointsOfInterest(prev => prev.filter(p => p.id !== poi.id))} />
+                  </div>
+                  <select
+                    className="text-[10px] uppercase font-bold text-gray-400 bg-transparent outline-none w-full"
+                    value={poi.type}
+                    onChange={(e) => setPointsOfInterest(prev => prev.map(p => p.id === poi.id ? { ...p, type: e.target.value } : p))}
+                  >
+                    {poiTypes.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 flex justify-between items-center">
+                    <div className="text-[9px] font-bold text-gray-400 uppercase">Floor: {poi.floorId}</div>
+                    <div className="text-[7px] font-mono text-gray-300 truncate max-w-[100px]">Node: {poi.nodeId.split('-')[0]}...</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
+function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; }) {
+  return (
+    <button onClick={onClick} className={`group relative p-4 rounded-2xl transition-all ${
+      active ? "bg-indigo-600 text-white shadow-lg scale-110" : "text-gray-400 hover:bg-white hover:text-indigo-600"
+    }`}>
+      {icon}
+      <span className="absolute left-full ml-4 px-2 py-1 bg-gray-800 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
+        {label}
+      </span>
+    </button>
+  );
+}
+</file>
+
 <file path="PWA/next.config.mjs">
 /** @type {import('next').NextConfig} */
+
+// ✅ Safe fallback to prevent "Invalid rewrite found" crash
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+
 const nextConfig = {
   reactStrictMode: true,
 
@@ -11056,414 +8665,23 @@ const nextConfig = {
   },
 
   async rewrites() {
+    // 🚨 Guard: Ensure destination is always valid
+    if (!API_BASE_URL.startsWith("http")) {
+      throw new Error(
+        "NEXT_PUBLIC_API_BASE_URL must start with http:// or https://"
+      );
+    }
+
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/:path*`,
-
+        destination: `${API_BASE_URL}/api/:path*`,
       },
     ];
   },
 };
 
 export default nextConfig;
-</file>
-
-<file path="backend/prisma/schema.prisma">
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id               String      @id @default(uuid())
-  email            String      @unique
-  passwordHash     String
-  name             String?
-  planStatus       PlanStatus  @default(FREE)
-  creditsRemaining Int         @default(10)
-
-  hospitals    Hospital[]
-  subscription Subscription?
-
-  analyticsEvents AnalyticsEvent[]
-
-  stripeCustomerId String? 
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Subscription {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  status               String
-  stripeSubscriptionId String?  @unique
-  stripePriceId        String?
-  currentPeriodEnd     DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Hospital {
-  id                 String             @id @default(cuid())
-  name               String
-  address            String
-  country            String
-  state              String?
-  region             Region
-  subscriptionStatus SubscriptionStatus
-
-  trialEndsAt        DateTime?
-  paymentProvider    PaymentProvider?
-
-  createdByUser String
-  user          User   @relation(fields: [createdByUser], references: [id])
-
-  analyticsEvents AnalyticsEvent[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  floors Floor[]
-  maps   Map[]      // Added relation to Map
-}
-
-model AnalyticsEvent {
-  id        String   @id @default(uuid())
-  eventType String
-  metadata  Json?
-  createdAt DateTime @default(now())
-
-  userId     String?
-  user       User?     @relation(fields: [userId], references: [id])
-
-  hospitalId String?
-  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
-
-  @@index([userId])
-  @@index([hospitalId])
-}
-
-model Floor {
-  id         String    @id @default(cuid())
-  name       String
-  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
-  hospitalId String
-  level      Int?
-  graphData  Json
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-}
-
-model Map {
-  id        String   @id @default(cuid())
-  name      String
-  imageUrl  String
-  hospital  Hospital @relation(fields: [hospitalId], references: [id])
-  hospitalId String
-
-  pois   Poi[]
-  routes Route[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Poi {
-  id        String   @id @default(cuid())
-  name      String
-  qrId      String   @unique 
-  type      String
-  x         Float
-  y         Float
-  map       Map      @relation(fields: [mapId], references: [id])
-  mapId     String
-  nodeId    String   @unique
-  floorId   String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([floorId])
-}
-
-model Route {
-  id       String   @id @default(cuid())
-  fromId   String
-  toId     String
-  distance Float
-  map      Map      @relation(fields: [mapId], references: [id])
-  mapId    String
-}
-
-enum Region {
-  TAMIL_NADU
-  INDIA_OTHER
-  INTERNATIONAL
-}
-
-enum SubscriptionStatus {
-  FREE
-  TRIAL
-  ACTIVE
-  EXPIRED
-}
-
-enum PlanStatus {
-  FREE
-  PRO
-  ENTERPRISE
-}
-
-enum PaymentProvider {
-  RAZORPAY
-  STRIPE
-}
-</file>
-
-<file path="PWA/app/navigate/page.tsx">
-"use client";
-
-import { useState, useEffect } from "react";
-import {
-  Search,
-  RotateCcw,
-  MapPin,
-  X,
-  Camera,
-  ChevronRight,
-} from "lucide-react";
-
-import QRAnchorScanner from "@/components/QRAnchorScanner";
-import NavigationSteps from "@/components/NavigationSteps";
-import Compass from "@/components/Compass";
-import FloorDetector from "@/components/FloorDetector";
-import LiveLocation from "@/components/LiveLocation";
-
-interface POI {
-  id: string;
-  name: string;
-  qrId: string;
-  nodeId: string;
-  type?: string;
-}
-
-export default function NavigatePage() {
-  const [isSearching, setIsSearching] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
-  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
-
-  const [scannedNodeId, setScannedNodeId] = useState<string>();
-  const [targetNodeId, setTargetNodeId] = useState<string>();
-  const [floorId, setFloorId] = useState<string>("1");
-  const [poiList, setPoiList] = useState<POI[]>([]);
-
-  const [scanLocked, setScanLocked] = useState(false);
-
-  /* ---------- INIT HOSPITAL ---------- */
-  useEffect(() => {
-    fetch("/api/hospital/active")
-      .then((r) => r.json())
-      .then((d) => d?.id && setHospitalId(d.id))
-      .catch((err) => console.error("Hospital Fetch Error:", err));
-  }, []);
-
-  /* ---------- FETCH POIs ---------- */
-  useEffect(() => {
-    if (!hospitalId) return;
-
-    fetch(`/api/hospital/${hospitalId}/locations`)
-      .then((r) => r.json())
-      .then((d) => setPoiList(Array.isArray(d) ? d : d.locations || []))
-      .catch((err) => console.error("POI Fetch Error:", err));
-  }, [hospitalId]);
-
-  /* ---------- RESET ---------- */
-  const handleReset = () => {
-    setScannedNodeId(undefined);
-    setTargetNodeId(undefined);
-    setCurrentLocation("Scan QR to Begin");
-    setShowScanner(false);
-    setIsSearching(false);
-    setSearchQuery("");
-  };
-
-  /* ---------- QR DETECT (FIXED) ---------- */
-  const handleQRDetect = async (data: any) => {
-    if (scanLocked) return;
-    setScanLocked(true);
-
-    try {
-      const raw = typeof data === "string" ? data : data?.data || data?.url;
-      if (!raw) return;
-
-      const qrId = raw.includes("/api/scan/")
-        ? raw.split("/api/scan/")[1]
-        : raw;
-
-      // This uses the Next.js rewrite proxy defined in next.config.js
-      const res = await fetch(`/api/scan/${qrId}`);
-      
-      if (!res.ok) {
-        const errorData = await res.json();
-        console.error("Scan API Error:", errorData);
-        return;
-      }
-
-      const result = await res.json();
-      setScannedNodeId(result.nodeId);
-      setFloorId(result.floorId);
-      setCurrentLocation(result.locationName);
-      setShowScanner(false);
-    } catch (err) {
-      console.error("QR scan network error:", err);
-    } finally {
-      // Prevent multiple immediate triggers
-      setTimeout(() => setScanLocked(false), 2000);
-    }
-  };
-
-  const filteredPOIs = poiList.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  /* ================== JSX ================== */
-  return (
-    <main className="h-screen w-full bg-[#020617] text-slate-100 flex flex-col">
-      <FloorDetector onFloor={(f) => setFloorId(f.toString())} />
-
-      {/* HEADER */}
-      <header className="h-16 px-6 grid grid-cols-3 items-center border-b border-white/5 bg-slate-900/50">
-        <Compass />
-        <div className="text-center text-xs font-bold text-blue-400">
-          Vazhikatti
-        </div>
-        <div className="flex justify-end">
-          <button onClick={handleReset} className="p-2 hover:bg-white/5 rounded-full transition-colors">
-            <RotateCcw size={18} />
-          </button>
-        </div>
-      </header>
-
-      {/* CONTENT */}
-      <div className="flex-1 overflow-y-auto px-6 py-10 max-w-md mx-auto w-full">
-        {showScanner ? (
-          <div className="relative aspect-square rounded-3xl overflow-hidden shadow-2xl shadow-blue-500/10 border border-white/10">
-            <QRAnchorScanner onDetect={handleQRDetect} />
-            <button
-              onClick={() => setShowScanner(false)}
-              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full border border-white/10"
-            >
-              <X size={20} />
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="text-center space-y-3">
-              <div className="relative inline-block">
-                <MapPin size={48} className="mx-auto text-blue-500 animate-pulse" />
-                <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
-              </div>
-              <h2 className="text-2xl font-bold tracking-tight">{currentLocation}</h2>
-              <LiveLocation />
-            </div>
-
-            <button
-              onClick={() => setShowScanner(true)}
-              className="mt-8 w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-full font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
-            >
-              <Camera size={20} />
-              <span>Open Scanner</span>
-            </button>
-          </>
-        )}
-
-        {!targetNodeId && !showScanner && (
-          <div className="mt-8 space-y-4">
-            {!isSearching ? (
-              <button
-                onClick={() => setIsSearching(true)}
-                className="w-full p-5 bg-slate-900/50 border border-white/5 rounded-2xl flex justify-between items-center hover:border-blue-500/50 transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <Search size={20} className="text-slate-400 group-hover:text-blue-400" />
-                  <span className="text-slate-300">Where to?</span>
-                </div>
-                <ChevronRight size={20} className="text-slate-500" />
-              </button>
-            ) : (
-              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="relative">
-                  <input
-                    autoFocus
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full p-4 pl-12 rounded-xl bg-slate-900 border border-blue-500/30 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                    placeholder="Search department..."
-                  />
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <button 
-                    onClick={() => setIsSearching(false)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                
-                <div className="mt-3 space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                  {filteredPOIs.length > 0 ? (
-                    filteredPOIs.map((poi) => (
-                      <button
-                        key={poi.id}
-                        onClick={() => {
-                          setTargetNodeId(poi.nodeId);
-                          setIsSearching(false);
-                        }}
-                        className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left transition-all active:scale-[0.99]"
-                      >
-                        <div className="font-medium text-slate-100">{poi.name}</div>
-                        {poi.type && <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">{poi.type}</div>}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-slate-500 text-sm">
-                      No locations found
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* NAVIGATION OVERLAY */}
-      {targetNodeId && scannedNodeId && (
-        <div className="border-t border-white/5 p-4 bg-slate-900/90 backdrop-blur-xl animate-in slide-in-from-bottom duration-500">
-          <div className="max-w-md mx-auto">
-             <NavigationSteps
-              startNodeId={scannedNodeId}
-              endNodeId={targetNodeId}
-              floorId={floorId}
-              hospitalId={hospitalId!}
-            />
-          </div>
-        </div>
-      )}
-    </main>
-  );
-}
 </file>
 
 <file path="PWA/repomix-output.xml">
@@ -12600,6 +9818,816 @@ module.exports = {
 </file>
 
 </files>
+</file>
+
+<file path="PWA/components/NavigationSteps.tsx">
+"use client";
+
+import { useEffect, useState } from "react";
+import { Navigation, MapPin, Loader2, AlertCircle } from "lucide-react";
+
+interface Props {
+  hospitalId: string;
+  floorId?: string;
+  startNodeId?: string;
+  endNodeId?: string;
+}
+
+export default function NavigationSteps({
+  hospitalId,
+  floorId,
+  startNodeId,
+  endNodeId,
+}: Props) {
+  const [steps, setSteps] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Reset state when inputs change
+    setError(null);
+
+    if (!hospitalId || !startNodeId || !endNodeId || !floorId) {
+      setSteps([]);
+      return;
+    }
+
+    const fetchRoute = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/navigation/shortest-path", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            hospitalId,
+            floorId,
+            startNodeId,
+            endNodeId,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          // Specifically handle the 400 error we saw in logs
+          if (res.status === 400) {
+            setError("Outdated QR code or location. Please try scanning again.");
+          } else {
+            setError(data.error || "Failed to calculate route.");
+          }
+          setSteps([]);
+          return;
+        }
+
+        setSteps(Array.isArray(data?.instructions) ? data.instructions : []);
+      } catch (err) {
+        console.error("Navigation error:", err);
+        setError("Network error. Check your connection.");
+        setSteps([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRoute();
+  }, [hospitalId, floorId, startNodeId, endNodeId]);
+
+  /* ---------- LOADING ---------- */
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 px-2 py-3">
+        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+        <span className="text-sm text-slate-300">Calculating route…</span>
+      </div>
+    );
+  }
+
+  /* ---------- ERROR STATE ---------- */
+  if (error) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-2xl">
+        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+        <span className="text-sm text-red-200">{error}</span>
+      </div>
+    );
+  }
+
+  /* ---------- IDLE ---------- */
+  if (!startNodeId || !endNodeId) {
+    return (
+      <div className="px-2 py-3 text-sm text-slate-400 italic">
+        Awaiting navigation input...
+      </div>
+    );
+  }
+
+  /* ---------- NO PATH FOUND ---------- */
+  if (steps.length === 0 && !loading) {
+    return (
+      <div className="px-2 py-3 text-sm text-slate-400">
+        No available route found on this floor.
+      </div>
+    );
+  }
+
+  /* ---------- ACTIVE NAVIGATION ---------- */
+  return (
+    <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar py-1">
+      {steps.map((text, i) => {
+        const isLast = i === steps.length - 1;
+
+        return (
+          <div
+            key={i}
+            className="
+              snap-center shrink-0 w-[85%]
+              bg-slate-900/70 backdrop-blur-md
+              border border-white/10
+              rounded-2xl
+              px-4 py-4
+              flex gap-4
+              shadow-xl
+            "
+          >
+            <div className="flex flex-col items-center gap-1 pt-1">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center
+                  ${
+                    isLast
+                      ? "bg-green-500/20 text-green-400"
+                      : "bg-blue-500/20 text-blue-400"
+                  }
+                `}
+              >
+                {isLast ? <MapPin size={20} /> : <Navigation size={20} />}
+              </div>
+              <span className="text-[10px] text-slate-500 font-bold uppercase mt-1">
+                {isLast ? "Goal" : `Step ${i + 1}`}
+              </span>
+            </div>
+
+            <p className="text-[15px] text-white font-medium leading-relaxed self-center">
+              {text}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+</file>
+
+<file path="backend/prisma/schema.prisma">
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  name             String?
+  planStatus       PlanStatus  @default(FREE)
+  creditsRemaining Int         @default(10)
+
+  hospitals    Hospital[]
+  subscription Subscription?
+
+  analyticsEvents AnalyticsEvent[]
+
+  stripeCustomerId String? 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status               String
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Hospital {
+  id                 String             @id @default(cuid())
+  name               String
+  address            String
+  country            String
+  state              String?
+  region             Region
+  subscriptionStatus SubscriptionStatus
+
+  trialEndsAt        DateTime?
+  paymentProvider    PaymentProvider?
+
+  createdByUser String
+  user          User   @relation(fields: [createdByUser], references: [id])
+
+  analyticsEvents AnalyticsEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  floors Floor[]
+  maps   Map[]      // Added relation to Map
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  eventType String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+
+  hospitalId String?
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
+
+  @@index([userId])
+  @@index([hospitalId])
+}
+
+model Floor {
+  id         String    @id @default(cuid())
+  name       String
+  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+  level      Int?
+  graphData  Json
+  pois       Poi[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Map {
+  id        String   @id @default(cuid())
+  name      String
+  imageUrl  String
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+
+  pois   Poi[]
+  routes Route[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Poi {
+  id        String   @id @default(cuid())
+  name      String
+  qrId      String   @unique 
+  type      String
+  x         Float
+  y         Float
+  map       Map      @relation(fields: [mapId], references: [id])
+  mapId     String
+  nodeId    String   @unique
+  floor     Floor    @relation(fields: [floorId], references: [id])
+  floorId   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([floorId])
+}
+
+model Route {
+  id       String   @id @default(cuid())
+  fromId   String
+  toId     String
+  distance Float
+  map      Map      @relation(fields: [mapId], references: [id])
+  mapId    String
+}
+
+enum Region {
+  TAMIL_NADU
+  INDIA_OTHER
+  INTERNATIONAL
+}
+
+enum SubscriptionStatus {
+  FREE
+  TRIAL
+  ACTIVE
+  EXPIRED
+}
+
+enum PlanStatus {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
+}
+</file>
+
+<file path="backend/src/app/api/navigation/shortest-path/route.ts">
+import { NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/prisma"
+
+/* ---------------- UPDATED TYPES ---------------- */
+
+type GraphPOI = {
+  nodeId: string
+  x: number
+  y: number
+  name?: string
+}
+
+type GraphRoute = {
+  from: string
+  to: string
+  distance: number // Map this to 'weight' for Dijkstra
+}
+
+type GraphData = {
+  pointsOfInterest: GraphPOI[]
+  routes: GraphRoute[]
+}
+
+type GraphEdge = {
+  from: string
+  to: string
+  weight: number
+}
+
+/* ---------------- HELPERS ---------------- */
+
+function dijkstra(
+  nodes: string[],
+  edges: GraphEdge[],
+  start: string,
+  end: string
+): string[] | null {
+  const distances: Record<string, number> = {}
+  const previous: Record<string, string | null> = {}
+  const unvisited = new Set(nodes)
+
+  nodes.forEach(n => {
+    distances[n] = Infinity
+    previous[n] = null
+  })
+
+  distances[start] = 0
+
+  while (unvisited.size > 0) {
+    const current = [...unvisited].reduce((a, b) =>
+      distances[a] < distances[b] ? a : b
+    )
+
+    if (distances[current] === Infinity) break 
+    if (current === end) break
+    unvisited.delete(current)
+
+    const neighbors = edges.filter(
+      e => e.from === current || e.to === current
+    )
+
+    for (const edge of neighbors) {
+      const neighbor = edge.from === current ? edge.to : edge.from
+      if (!unvisited.has(neighbor)) continue
+
+      const alt = distances[current] + (edge.weight ?? 1)
+      if (alt < distances[neighbor]) {
+        distances[neighbor] = alt
+        previous[neighbor] = current
+      }
+    }
+  }
+
+  const path: string[] = []
+  let curr: string | null = end
+
+  while (curr) {
+    path.unshift(curr)
+    curr = previous[curr]
+  }
+
+  return path[0] === start ? path : null
+}
+
+/* ---------------- ROUTE ---------------- */
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    console.log("🧭 NAV PAYLOAD:", body)
+
+    const { hospitalId, floorId, startNodeId, endNodeId } = body
+
+    if (!hospitalId || !floorId || !startNodeId || !endNodeId) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      )
+    }
+
+    /* -------- FETCH FLOOR GRAPH -------- */
+
+    const floor = await prisma.floor.findFirst({
+      where: {
+        hospitalId,
+        level: Number(floorId)
+      },
+      select: {
+        graphData: true
+      }
+    })
+
+    if (!floor || !floor.graphData) {
+      return NextResponse.json(
+        { error: "Graph data not found for floor" },
+        { status: 400 }
+      )
+    }
+
+    // Cast the JSON to our updated GraphData structure
+    const graph = floor.graphData as unknown as GraphData
+
+    console.log("🧩 GRAPH EXTRACTED:", graph)
+
+    /* -------- GRAPH VALIDATION -------- */
+
+    if (
+      !Array.isArray(graph.pointsOfInterest) ||
+      !Array.isArray(graph.routes)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid graph structure in database" },
+        { status: 400 }
+      )
+    }
+
+    const nodeIds = graph.pointsOfInterest.map(p => p.nodeId)
+
+    // Log check for debugging node existence
+    if (!nodeIds.includes(startNodeId)) {
+      console.error(`❌ Start node ${startNodeId} not found in graph nodes:`, nodeIds)
+      return NextResponse.json({ error: "Start node not in graph" }, { status: 400 })
+    }
+
+    if (!nodeIds.includes(endNodeId)) {
+      console.error(`❌ End node ${endNodeId} not found in graph nodes:`, nodeIds)
+      return NextResponse.json({ error: "End node not in graph" }, { status: 400 })
+    }
+
+    /* -------- SHORTEST PATH -------- */
+
+    // Map DB 'routes' to 'GraphEdge' format
+    const edges: GraphEdge[] = graph.routes.map(r => ({
+      from: r.from,
+      to: r.to,
+      weight: r.distance || 1
+    }))
+
+    const path = dijkstra(
+      nodeIds,
+      edges,
+      startNodeId,
+      endNodeId
+    )
+
+    if (!path) {
+      return NextResponse.json(
+        { error: "No path found between nodes" },
+        { status: 400 }
+      )
+    }
+
+    /* -------- FETCH POI COORDINATES -------- */
+
+    const pois = await prisma.poi.findMany({
+      where: {
+        nodeId: { in: path }
+      },
+      select: {
+        nodeId: true,
+        x: true,
+        y: true
+      }
+    })
+
+    const pathWithCoords = path.map(nodeId => {
+      // First try to find in the POI table, fallback to the graphData JSON
+      const poiRecord = pois.find(p => p.nodeId === nodeId)
+      const graphPoi = graph.pointsOfInterest.find(p => p.nodeId === nodeId)
+      
+      return {
+        nodeId,
+        x: poiRecord?.x ?? graphPoi?.x ?? null,
+        y: poiRecord?.y ?? graphPoi?.y ?? null
+      }
+    })
+
+    return NextResponse.json({
+      success: true,
+      path: pathWithCoords
+    })
+
+  } catch (err) {
+    console.error("❌ NAV ERROR:", err)
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    )
+  }
+}
+</file>
+
+<file path="PWA/app/navigate/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import {
+  Search,
+  RotateCcw,
+  MapPin,
+  X,
+  Camera,
+  ChevronRight,
+} from "lucide-react";
+
+import QRAnchorScanner from "@/components/QRAnchorScanner";
+import NavigationSteps from "@/components/NavigationSteps";
+import Compass from "@/components/Compass";
+import FloorDetector from "@/components/FloorDetector";
+import LiveLocation from "@/components/LiveLocation";
+
+interface POI {
+  id: string;
+  name: string;
+  qrId: string;
+  nodeId: string;
+  type?: string;
+  floorId: string;
+}
+
+export default function NavigatePage() {
+  const [isSearching, setIsSearching] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+
+  const [scannedNodeId, setScannedNodeId] = useState<string>();
+  const [targetNodeId, setTargetNodeId] = useState<string>();
+  const [floorId, setFloorId] = useState<string>("1");
+  const [poiList, setPoiList] = useState<POI[]>([]);
+
+  const [scanLocked, setScanLocked] = useState(false);
+
+  /* ---------- INIT HOSPITAL ---------- */
+  useEffect(() => {
+    fetch("/api/hospital/active")
+      .then((r) => r.json())
+      .then((d) => d?.id && setHospitalId(d.id))
+      .catch((err) => console.error("Hospital Fetch Error:", err));
+  }, []);
+
+  /* ---------- FETCH POIs (FIXED, LOGIC UNCHANGED) ---------- */
+  useEffect(() => {
+    if (!hospitalId) return;
+
+    fetch(`/api/hospital/${hospitalId}/locations`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d?.locations) {
+          setPoiList([]);
+          return;
+        }
+
+        // ✅ ONLY FIX: flatten locations[].pois → POI[]
+        const pois: POI[] = d.locations.flatMap((loc: any) =>
+          loc.pois.map((poi: any) => ({
+            id: poi.id,
+            name: poi.name,
+            qrId: poi.qrId,
+            nodeId: poi.nodeId,
+            type: poi.type,
+            floorId: poi.floor?.level?.toString() ?? "1",
+          }))
+        );
+
+        setPoiList(pois);
+      })
+      .catch((err) => console.error("POI Fetch Error:", err));
+  }, [hospitalId]);
+
+  /* ---------- RESET ---------- */
+  const handleReset = () => {
+    setScannedNodeId(undefined);
+    setTargetNodeId(undefined);
+    setCurrentLocation("Scan QR to Begin");
+    setShowScanner(false);
+    setIsSearching(false);
+    setSearchQuery("");
+  };
+
+  /* ---------- QR DETECT ---------- */
+  const handleQRDetect = async (data: any) => {
+    if (scanLocked) return;
+    setScanLocked(true);
+
+    try {
+      const raw = typeof data === "string" ? data : data?.data || data?.url;
+      if (!raw) return;
+
+      const qrId = raw.includes("/api/scan/")
+        ? raw.split("/api/scan/")[1]
+        : raw;
+
+      const res = await fetch(`/api/scan/${qrId}`);
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error("Scan API Error:", errorData);
+        return;
+      }
+
+      const result = await res.json();
+      setScannedNodeId(result.nodeId);
+      setFloorId(result.floorId);
+      setCurrentLocation(result.locationName);
+      setShowScanner(false);
+    } catch (err) {
+      console.error("QR scan network error:", err);
+    } finally {
+      setTimeout(() => setScanLocked(false), 2000);
+    }
+  };
+
+  /* ---------- FLOOR-AWARE POIs ---------- */
+  const floorPOIs = poiList.filter((p) => p.floorId === floorId);
+
+  const filteredPOIs = floorPOIs.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  /* ================== JSX ================== */
+  return (
+    <main className="h-screen w-full bg-[#020617] text-slate-100 flex flex-col">
+      <FloorDetector onFloor={(f) => setFloorId(f.toString())} />
+
+      {/* HEADER */}
+      <header className="h-16 px-6 grid grid-cols-3 items-center border-b border-white/5 bg-slate-900/50">
+        <Compass />
+        <div className="text-center text-xs font-bold text-blue-400">
+          Vazhikatti
+        </div>
+        <div className="flex justify-end">
+          <button
+            onClick={handleReset}
+            className="p-2 hover:bg-white/5 rounded-full transition-colors"
+          >
+            <RotateCcw size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* CONTENT */}
+      <div className="flex-1 overflow-y-auto px-6 py-10 max-w-md mx-auto w-full">
+        {showScanner ? (
+          <div className="relative aspect-square rounded-3xl overflow-hidden shadow-2xl shadow-blue-500/10 border border-white/10">
+            <QRAnchorScanner onDetect={handleQRDetect} />
+            <button
+              onClick={() => setShowScanner(false)}
+              className="absolute top-4 right-4 p-2 bg-black/50 backdrop-blur-md rounded-full border border-white/10"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="text-center space-y-3">
+              <div className="relative inline-block">
+                <MapPin
+                  size={48}
+                  className="mx-auto text-blue-500 animate-pulse"
+                />
+                <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight">
+                {currentLocation}
+              </h2>
+              <LiveLocation />
+            </div>
+
+            <button
+              onClick={() => setShowScanner(true)}
+              className="mt-8 w-full py-4 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all rounded-full font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+            >
+              <Camera size={20} />
+              <span>Open Scanner</span>
+            </button>
+          </>
+        )}
+
+        {!targetNodeId && !showScanner && (
+          <div className="mt-8 space-y-4">
+            {!isSearching ? (
+              <button
+                onClick={() => setIsSearching(true)}
+                className="w-full p-5 bg-slate-900/50 border border-white/5 rounded-2xl flex justify-between items-center hover:border-blue-500/50 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <Search
+                    size={20}
+                    className="text-slate-400 group-hover:text-blue-400"
+                  />
+                  <span className="text-slate-300">Where to?</span>
+                </div>
+                <ChevronRight size={20} className="text-slate-500" />
+              </button>
+            ) : (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="relative">
+                  <input
+                    autoFocus
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full p-4 pl-12 rounded-xl bg-slate-900 border border-blue-500/30 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                    placeholder="Search department..."
+                  />
+                  <Search
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                    size={18}
+                  />
+                  <button
+                    onClick={() => setIsSearching(false)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {filteredPOIs.length > 0 ? (
+                    filteredPOIs.map((poi) => (
+                      <button
+                        key={poi.id}
+                        onClick={() => {
+                          setTargetNodeId(poi.nodeId);
+                          setIsSearching(false);
+                        }}
+                        className="w-full p-4 bg-white/5 hover:bg-white/10 border border-transparent hover:border-white/10 rounded-xl text-left transition-all active:scale-[0.99]"
+                      >
+                        <div className="font-medium text-slate-100">
+                          {poi.name}
+                        </div>
+                        {poi.type && (
+                          <div className="text-xs text-slate-500 uppercase tracking-wider mt-1">
+                            {poi.type}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-slate-500 text-sm">
+                      No locations found
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* NAVIGATION OVERLAY */}
+      {targetNodeId && scannedNodeId && (
+        <div className="border-t border-white/5 p-4 bg-slate-900/90 backdrop-blur-xl animate-in slide-in-from-bottom duration-500">
+          <div className="max-w-md mx-auto">
+            <NavigationSteps
+              startNodeId={scannedNodeId}
+              endNodeId={targetNodeId}
+              floorId={floorId}
+              hospitalId={hospitalId!}
+            />
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
 </file>
 
 </files>

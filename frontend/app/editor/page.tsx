@@ -85,7 +85,6 @@ export default function Editor() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const draggingPOIRef = useRef<POI | null>(null);
 
-  /* ---------- POI TYPES ---------- */
   const poiTypes = [
     { value: "entrance", label: "Entrance" },
     { value: "exit", label: "Exit" },
@@ -124,7 +123,6 @@ export default function Editor() {
           url: mapUrl,
         });
 
-        // Load existing floor data
         const floorRes = await fetch(
           `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/floor?hospitalId=${user.id}`,
           { credentials: "include" }
@@ -148,7 +146,7 @@ export default function Editor() {
     init();
   }, []);
 
-  /* ---------- SAVE ---------- */
+  /* ---------- SAVE (UPDATED WITH LONG-TERM SYNC) ---------- */
   const handleSaveToDB = async () => {
     if (!hospitalId || !selectedMap) return;
 
@@ -170,6 +168,7 @@ export default function Editor() {
             hospitalId,
             mapId: selectedMap.id,
             name: selectedMap.name,
+            floorLevel: activeFloor, // CRITICAL: Tells backend which floor to sync POIs for
             graphData: { pointsOfInterest, routes },
           }),
         }
@@ -180,9 +179,8 @@ export default function Editor() {
       if (saved.id) {
         setSelectedMap((p) => (p ? { ...p, id: saved.id } : null));
         window.history.replaceState(null, "", `/editor?mapId=${saved.id}`);
+        alert("Success: Floor graph and POI table are now in sync.");
       }
-
-      alert("Floor saved successfully");
     } catch (err) {
       console.error(err);
       alert("Save failed");
@@ -191,11 +189,9 @@ export default function Editor() {
     }
   };
 
-  /* ---------- AI IDENTIFY ---------- */
   const triggerAutoIdentify = async () => {
     if (!selectedMap?.id) return;
     setIsIdentifying(true);
-
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/poi`,
@@ -210,7 +206,6 @@ export default function Editor() {
           }),
         }
       );
-
       const autoPois = await res.json();
       setPointsOfInterest((p) => [...p, ...autoPois]);
     } finally {
@@ -218,70 +213,49 @@ export default function Editor() {
     }
   };
 
-  /* ---------- POI CLICK ---------- */
   const handlePOIClick = (poi: POI, e: React.MouseEvent) => {
     e.stopPropagation();
-
     if (activeTool === "delete") {
       setPointsOfInterest((p) => p.filter((x) => x.id !== poi.id));
-      setRoutes((r) =>
-        r.filter((x) => x.from !== poi.nodeId && x.to !== poi.nodeId)
-      );
+      setRoutes((r) => r.filter((x) => x.from !== poi.nodeId && x.to !== poi.nodeId));
       return;
     }
-
     if (activeTool === "route") {
       if (routeStartPOI === null) {
         setRouteStartPOI(poi.id);
       } else {
         const from = pointsOfInterest.find((p) => p.id === routeStartPOI);
         if (!from) return;
-
-        const isConnector =
-          ["stairs", "lift"].includes(from.type) ||
-          ["stairs", "lift"].includes(poi.type);
-
+        const isConnector = ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(poi.type);
         if (from.floorId !== poi.floorId && !isConnector) {
           alert("Cross-floor routes require stairs or lift");
           setRouteStartPOI(null);
           return;
         }
-
         setRoutes((r) => [
           ...r,
           {
             id: Date.now(),
             from: from.nodeId,
             to: poi.nodeId,
-            distance:
-              from.floorId === poi.floorId
-                ? Math.round(Math.hypot(poi.x - from.x, poi.y - from.y))
-                : 1,
+            distance: from.floorId === poi.floorId ? Math.round(Math.hypot(poi.x - from.x, poi.y - from.y)) : 1,
             floorId: from.floorId,
           },
         ]);
-
         setRouteStartPOI(null);
       }
       return;
     }
-
     setSelectedPOI(poi);
   };
 
-  /* ---------- DRAG ---------- */
   const onMouseMove = (e: React.MouseEvent) => {
     if (!draggingPOIRef.current || !canvasRef.current) return;
-
     const rect = canvasRef.current.getBoundingClientRect();
     setPointsOfInterest((p) =>
       p.map((x) =>
         x.id === draggingPOIRef.current!.id
-          ? {
-              ...x,
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            }
+          ? { ...x, x: e.clientX - rect.left, y: e.clientY - rect.top }
           : x
       )
     );
@@ -294,7 +268,6 @@ export default function Editor() {
       </div>
     );
 
-  /* ---------- RENDER ---------- */
   return (
     <Layout showSidebar={true}>
       <div className="flex flex-col h-screen bg-white">
@@ -308,17 +281,14 @@ export default function Editor() {
 
           <div className="flex gap-3 items-center">
             <div className="flex items-center gap-2 mr-2">
-    <span className="text-xs font-bold text-gray-400 uppercase">
-      Floor
-    </span>
-    <input
-      type="number"
-      value={activeFloor}
-      onChange={(e) => setActiveFloor(Number(e.target.value))}
-      className="w-16 px-2 py-1 text-sm font-bold border rounded-md text-center"
-    />
-  </div>
-
+              <span className="text-xs font-bold text-gray-400 uppercase">Floor</span>
+              <input
+                type="number"
+                value={activeFloor}
+                onChange={(e) => setActiveFloor(Number(e.target.value))}
+                className="w-16 px-2 py-1 text-sm font-bold border rounded-md text-center"
+              />
+            </div>
             <button onClick={triggerAutoIdentify} disabled={isIdentifying} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200 text-sm font-bold hover:bg-amber-100 disabled:opacity-50 transition-all">
               {isIdentifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               AI SCAN
@@ -336,7 +306,6 @@ export default function Editor() {
           </div>
         </div>
 
-        {/* CANVAS & SIDEBAR */}
         <div className="flex flex-1 overflow-hidden">
           {/* TOOLBAR */}
           <div className="w-20 border-r flex flex-col items-center gap-6 py-8 bg-gray-50 shrink-0">
@@ -356,7 +325,7 @@ export default function Editor() {
                   const rect = canvasRef.current!.getBoundingClientRect();
                   setPointsOfInterest(prev => [...prev, { 
                     id: Date.now(), 
-                    nodeId: crypto.randomUUID(),
+                    nodeId: crypto.randomUUID(), // CRITICAL: Permanent ID for Database Sync
                     name: `Room ${prev.length + 1}`, 
                     type: "general", 
                     x: e.clientX - rect.left, 
@@ -427,27 +396,18 @@ export default function Editor() {
                     <Trash2 size={14} className="text-gray-300 hover:text-red-500" onClick={() => setPointsOfInterest(prev => prev.filter(p => p.id !== poi.id))} />
                   </div>
                   <select
-  className="text-[10px] uppercase font-bold text-gray-400 bg-transparent outline-none w-full"
-  value={poi.type}
-  onChange={(e) =>
-    setPointsOfInterest(prev =>
-      prev.map(p =>
-        p.id === poi.id ? { ...p, type: e.target.value } : p
-      )
-    )
-  }
->
-  {poiTypes.map(t => (
-    <option key={t.value} value={t.value}>
-      {t.label}
-    </option>
-  ))}
-</select>
-
-<div className="mt-1 text-[9px] font-bold text-gray-400 uppercase">
-  Floor: {poi.floorId}
-</div>
-
+                    className="text-[10px] uppercase font-bold text-gray-400 bg-transparent outline-none w-full"
+                    value={poi.type}
+                    onChange={(e) => setPointsOfInterest(prev => prev.map(p => p.id === poi.id ? { ...p, type: e.target.value } : p))}
+                  >
+                    {poiTypes.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 flex justify-between items-center">
+                    <div className="text-[9px] font-bold text-gray-400 uppercase">Floor: {poi.floorId}</div>
+                    <div className="text-[7px] font-mono text-gray-300 truncate max-w-[100px]">Node: {poi.nodeId.split('-')[0]}...</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -458,7 +418,6 @@ export default function Editor() {
   );
 }
 
-/* ---------- TOOL COMPONENT ---------- */
 function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; }) {
   return (
     <button onClick={onClick} className={`group relative p-4 rounded-2xl transition-all ${
@@ -471,4 +430,3 @@ function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: 
     </button>
   );
 }
-

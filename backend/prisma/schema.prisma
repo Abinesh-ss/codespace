@@ -85,7 +85,7 @@ model Floor {
   name       String
   hospital   Hospital  @relation(fields: [hospitalId], references: [id])
   hospitalId String
-  image      String? @db.LongText
+  image      String?
   level      Int?
   graphData  Json
   pois       Poi[]

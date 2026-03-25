@@ -1,34 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 interface FloorDetectorProps {
   onFloor: (floor: number) => void;
-  defaultFloor?: number; // optional fallback
+  defaultFloor?: number;
 }
 
-export default function FloorDetector({ onFloor, defaultFloor = 1 }: FloorDetectorProps) {
-  const [currentFloor, setCurrentFloor] = useState<number>(defaultFloor);
+export default function FloorDetector({ onFloor, defaultFloor = 0 }: FloorDetectorProps) {
+  const hasInitialized = useRef(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("floor");
-    if (saved) {
-      const f = Number(saved);
-      setCurrentFloor(f);
-      onFloor(f);
-    } else {
-      localStorage.setItem("floor", defaultFloor.toString());
-      onFloor(defaultFloor);
-    }
+    if (hasInitialized.current || typeof window === "undefined") return;
+
+    const initializeFloor = () => {
+      let numericFloor = defaultFloor;
+
+      try {
+        const saved = window.localStorage.getItem("floor");
+        if (saved !== null && !isNaN(Number(saved))) {
+          numericFloor = Number(saved);
+        }
+        window.localStorage.setItem("floor", numericFloor.toString());
+      } catch (e) {
+        console.warn("Storage blocked, defaulting to floor:", defaultFloor);
+      }
+
+      // Small timeout ensures the rest of the app's providers 
+      // (like Map or Location) are ready before we trigger the fetch
+      setTimeout(() => {
+        onFloor(numericFloor);
+      }, 100); 
+      
+      hasInitialized.current = true;
+    };
+
+    initializeFloor();
   }, [defaultFloor, onFloor]);
 
-  // ✅ Optional: allow dynamic floor switching via JS
-  const switchFloor = (floor: number) => {
-    setCurrentFloor(floor);
-    localStorage.setItem("floor", floor.toString());
-    onFloor(floor);
-  };
-
-  return null; // still invisible in UI
+  return null;
 }
-

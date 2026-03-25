@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Routes that do NOT require authentication
+ * Paths that anyone can see
  */
 const PUBLIC_PATHS = [
   "/login",
@@ -10,45 +10,39 @@ const PUBLIC_PATHS = [
   "/",
 ];
 
-/**
- * File extensions & internal paths to ignore
- */
-const PUBLIC_FILES = /\.(.*)$/;
-
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Ignore next internals, static files, api routes
+  // 1. Skip middleware for internal Next.js tasks and static files
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
-    PUBLIC_FILES.test(pathname)
+    /\.(.*)$/.test(pathname)
   ) {
     return NextResponse.next();
   }
 
-  // Allow public paths
-  if (PUBLIC_PATHS.some((path) => pathname.startsWith(path))) {
+  // 2. If the user is on a public path, let them through
+  if (PUBLIC_PATHS.some((path) => pathname === path)) {
     return NextResponse.next();
   }
 
-  // Read auth token (matches backend cookie name)
+  // 3. Check for the authentication cookie
   const token = req.cookies.get("auth-token")?.value;
 
-  // If no token → redirect to login
+  // 4. Redirect to login if no token exists and they are trying to access protected routes
   if (!token) {
     const loginUrl = new URL("/login", req.url);
+    // Store the attempted path to redirect back after login
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
+  // 5. If token exists, let them proceed
   return NextResponse.next();
 }
 
-/**
- * Apply middleware only to app routes
- */
 export const config = {
-  matcher: ["/((?!_next|api|favicon.ico).*)"],
+  // Apply to all routes except API and static assets
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
-

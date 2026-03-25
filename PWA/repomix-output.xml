@@ -47,6 +47,7 @@ app/
   layout.tsx
   page.tsx
 components/
+  ARAnchorScanner.tsx
   CameraScanner.tsx
   Compass.tsx
   FloorDetector.tsx
@@ -77,226 +78,194 @@ This section contains the contents of the repository's files.
 <file path="app/navigate/page.tsx">
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, RotateCcw, MapPin, X, Camera, Navigation, ChevronRight } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX } from "lucide-react";
+
 import QRAnchorScanner from "@/components/QRAnchorScanner";
+import Compass from "@/components/Compass";
+import FloorDetector from "@/components/FloorDetector";
+import MapOverlay from "@/components/MapOverlay";
 import NavigationSteps from "@/components/NavigationSteps";
 
-interface POI {
-  id: string;
-  name: string;
-  type?: string;
-}
-
 export default function NavigatePage() {
-  const [isSearching, setIsSearching] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Logic states
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  
+  // State for Navigation and Mapping
+  const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
+  const [floorId, setFloorId] = useState<string>("0");
+  const [poiList, setPoiList] = useState<any[]>([]);
   const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
-  const [scannedNodeId, setScannedNodeId] = useState<string | undefined>();
-  const [targetNodeId, setTargetNodeId] = useState<string | undefined>();
-  const [floorId, setFloorId] = useState<string | undefined>("1");
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
 
-  const [poiList, setPoiList] = useState<POI[]>([]);
+  const speak = useCallback((text: string) => {
+    if (isMuted || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  }, [isMuted]);
 
-  // 1. Automatically fetch the Hospital CUID on load
+  // Handle Device Orientation for the Map Arrow
   useEffect(() => {
-    async function initHospital() {
-      try {
-        const res = await fetch("/api/hospital/active");
-        const data = await res.json();
-        if (data && data.id) {
-          setHospitalId(data.id);
-          console.log("Found Hospital CUID:", data.id);
-        }
-      } catch (err) {
-        console.error("Discovery error:", err);
-      }
-    }
-    initHospital();
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha !== null) setRotation(e.alpha);
+    };
+    window.addEventListener("deviceorientation", handleOrientation);
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
-  // 2. Fetch POIs only after hospitalId is set
+  // Fetch Active Hospital and POIs
   useEffect(() => {
-    if (!hospitalId) return;
-
-    const fetchPOIs = async () => {
-      try {
-        const res = await fetch(`/api/hospital/${hospitalId}/locations`);
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        
-        const list = Array.isArray(data) ? data : data.locations || [];
-        setPoiList(list);
-      } catch (err) {
-        console.error("POI Fetch Error:", err);
-      }
-    };
-    fetchPOIs();
-  }, [hospitalId]);
-
-  const handleReset = () => {
-    setScannedNodeId(undefined);
-    setTargetNodeId(undefined);
-    setCurrentLocation("Scan QR to Begin");
-    setShowScanner(false);
-    setIsSearching(false);
-    setSearchQuery("");
-  };
+    fetch("/api/hospital/active")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.id) {
+          setHospitalId(d.id);
+          return fetch(`/api/hospital/${d.id}/locations`);
+        }
+      })
+      .then((r) => r?.json())
+      .then((d) => {
+        if (d?.locations) {
+          const pois = d.locations.flatMap((loc: any) => 
+            loc.pois.map((p: any) => ({ ...p, floorId: String(loc.floorId) }))
+          );
+          setPoiList(pois);
+        }
+      });
+  }, []);
 
   const handleQRDetect = async (data: any) => {
     try {
-      const scanUrl = typeof data === "string" ? data : data?.data || data?.url;
-      let targetPath = scanUrl;
-      if (scanUrl.includes('/api/scan/')) {
-        targetPath = '/api/scan/' + scanUrl.split('/api/scan/')[1];
+      const raw = typeof data === "string" ? data : data?.data || data?.url;
+      const qrId = raw.includes("/api/scan/") ? raw.split("/api/scan/")[1] : raw;
+      
+      const res = await fetch(`/api/scan/${qrId}`);
+      const result = await res.json();
+
+      if (res.ok) {
+        // Capture specific coordinates for the map
+        setScannedNode({ id: result.nodeId, x: result.x, y: result.y });
+        setFloorId(String(result.floorId ?? "0"));
+        setCurrentLocation(result.locationName);
+        setShowScanner(false);
+        speak(`Position updated. You are at ${result.locationName}`);
       }
-      const res = await fetch(targetPath);
-      const location = await res.json();
-      setScannedNodeId(location.nodeId);
-      setFloorId(location.floorId);
-      setCurrentLocation(location.locationName);
-      setShowScanner(false);
-    } catch (error) {
-      console.error("QR Error:", error);
+    } catch (err) {
+      console.error("Scan failed");
     }
   };
 
-  // Real-time filtering logic
-  const filteredPOIs = poiList.filter(poi => 
-    poi.name?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
-    <main className="min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans">
-      <header className="h-16 px-6 grid grid-cols-3 items-center border-b border-white/5 bg-slate-900/50 backdrop-blur-xl sticky top-0 z-50">
-        <div />
-        <div className="flex justify-center">
-          <span className="text-sm font-black tracking-[0.3em] text-blue-500 uppercase">Vazhikatti</span>
-        </div>
-        <div className="flex justify-end">
-          <button onClick={handleReset} className="p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-white border border-white/10 transition-all">
-            <RotateCcw size={18} />
+    <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      <FloorDetector onFloor={(f) => setFloorId(f.toString())} />
+
+      {/* HEADER */}
+      <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
+        <div className="flex items-center gap-4">
+          <Compass />
+          <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-white/5 rounded-lg text-slate-400">
+            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
         </div>
+        <div className="text-center">
+          <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
+          <p className="text-[8px] text-slate-500 uppercase font-bold">{currentLocation}</p>
+        </div>
+        <button onClick={() => window.location.reload()} className="text-slate-400"><RotateCcw size={18} /></button>
       </header>
 
-      <section className="flex-1 flex flex-col items-center px-6 py-10 max-w-md mx-auto w-full gap-8">
-        {/* QR Scanner Section */}
-        <div className="w-full flex flex-col items-center gap-8">
-          {showScanner ? (
-            <div className="relative w-full aspect-square overflow-hidden rounded-[2.5rem] border-2 border-blue-500 bg-black">
-              <QRAnchorScanner onDetect={handleQRDetect} />
-              <button onClick={() => setShowScanner(false)} className="absolute top-4 right-4 z-10 p-2 bg-black/60 text-white rounded-full"><X size={20} /></button>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-6 w-full text-center">
-              <div className="relative">
-                <div className="absolute inset-0 bg-blue-600/20 blur-[60px] rounded-full" />
-                <div className="relative p-8 rounded-full bg-slate-900 border border-blue-500/20 text-blue-500">
-                  <MapPin size={64} strokeWidth={1.5} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-[10px] uppercase tracking-[0.3em] text-blue-400 font-black">Current Position</p>
-                <h2 className="text-3xl font-bold text-white">{currentLocation}</h2>
-              </div>
-              <button onClick={() => setShowScanner(true)} className="flex items-center gap-3 px-8 py-4 rounded-full bg-blue-600 text-white font-bold shadow-lg shadow-blue-900/40 hover:bg-blue-500 transition-all active:scale-95">
-                <Camera size={20} /> Open Scanner
-              </button>
-            </div>
-          )}
-        </div>
+      {/* MAP AREA */}
+      <div className="flex-1 relative w-full overflow-hidden z-10">
+        <MapOverlay 
+          poiList={poiList.filter(p => p.floorId === floorId)}
+          userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
+          targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
+          path={pathCoords}
+          rotation={rotation}
+        />
 
-        {/* SEARCH SECTION */}
-        {!targetNodeId && !showScanner && (
-          <div className="w-full space-y-4">
-            {!isSearching ? (
-              <button
-                onClick={() => setIsSearching(true)}
-                className="w-full flex items-center justify-between px-6 py-5 rounded-3xl bg-slate-900 border border-white/10 text-slate-300 hover:text-white transition-all group"
-              >
-                <div className="flex items-center gap-4">
-                  <Search className="text-blue-500" size={24} />
-                  <span className="font-semibold text-lg">Where to?</span>
-                </div>
-                <ChevronRight className="opacity-30 group-hover:opacity-100 transition-opacity" />
-              </button>
-            ) : (
-              <div className="w-full animate-in fade-in slide-in-from-top-4 duration-300">
-                {/* Forced White Text Input */}
-                <div className="flex items-center gap-4 bg-slate-900 border border-blue-500/50 p-5 rounded-[2rem] shadow-2xl">
-                  <Search className="text-blue-500" size={24} />
-                  <input
-                    autoFocus
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search department..."
-                    className="flex-1 bg-transparent border-none outline-none text-xl !text-white placeholder:text-slate-600 caret-white w-full"
-                    style={{ 
-                      color: 'white', 
-                      WebkitTextFillColor: 'white',
-                      appearance: 'none'
-                    }}
-                  />
-                  <button onClick={() => { setIsSearching(false); setSearchQuery(""); }} className="p-2 text-slate-400"><X size={20} /></button>
-                </div>
+        {scannedNode && !showScanner && (
+          <button 
+            onClick={() => setShowScanner(true)}
+            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-90 transition-all"
+          >
+            <Camera size={20} className="text-white" />
+          </button>
+        )}
 
-                {/* Destinations List */}
-                <div className="mt-6 space-y-4 max-h-[40vh] overflow-y-auto">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">
-                    {searchQuery ? "Search Results" : "Available Destinations"}
-                  </p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {filteredPOIs.length > 0 ? (
-                      filteredPOIs.slice(0, 10).map((poi) => (
-                        <button
-                          key={poi.id}
-                          onClick={() => {
-                            setTargetNodeId(poi.name);
-                            setIsSearching(false);
-                            setSearchQuery("");
-                          }}
-                          className="flex items-center justify-between p-5 bg-white/5 border border-white/5 rounded-2xl hover:bg-blue-600/20 hover:border-blue-500/40 transition-all text-left"
-                        >
-                          <span className="font-bold !text-white">{poi.name}</span>
-                          <Navigation size={18} className="text-blue-500" />
-                        </button>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-                        <p className="text-slate-500 text-sm">No destinations found.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+        {!scannedNode && !showScanner && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
+            <Navigation size={48} className="text-blue-500 animate-pulse" />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="px-8 py-3 bg-blue-600 rounded-xl font-bold"
+            >
+              Scan QR to Start
+            </button>
           </div>
         )}
-      </section>
+      </div>
 
-      {/* Navigation Steps Panel */}
-      {targetNodeId && (
-        <section className="p-6 bg-slate-900 border-t border-white/10 rounded-t-[3rem] animate-in slide-in-from-bottom duration-500 shadow-2xl">
-          <div className="max-w-md mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] mb-1">Destination</p>
-                <h4 className="text-xl font-bold !text-white">{targetNodeId}</h4>
+      {/* NAVIGATION FOOTER */}
+      {scannedNode && (
+        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem]">
+          {!targetNode || isSearching ? (
+            <div className="space-y-4">
+              <div className="relative">
+                <input 
+                  autoFocus={isSearching}
+                  placeholder="Where are you going?"
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none"
+                  onFocus={() => setIsSearching(true)}
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
               </div>
-              <div className="p-3 bg-blue-500/10 rounded-2xl border border-blue-500/20">
-                <Navigation size={24} className="text-blue-500" />
+              {isSearching && (
+                <div className="max-h-40 overflow-y-auto space-y-2">
+                   {poiList.filter(p => p.floorId === floorId).map((poi) => (
+                      <button 
+                        key={poi.id}
+                        onClick={() => { 
+                          setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
+                          setIsSearching(false); 
+                        }} 
+                        className="w-full p-3 text-left bg-white/10 rounded-lg text-sm"
+                      >
+                        {poi.name}
+                      </button>
+                   ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Active Navigation</span>
+                <button onClick={() => { setTargetNode(null); setPathCoords([]); }}><X size={16} className="text-slate-500" /></button>
               </div>
+              <NavigationSteps 
+                hospitalId={hospitalId || ""} 
+                floorId={floorId}
+                startNodeId={scannedNode.id}
+                endNodeId={targetNode.id}
+                onStepUpdate={(text) => speak(text)}
+                onPathUpdate={(coords) => setPathCoords(coords)}
+              />
             </div>
-            <div className="bg-white/5 rounded-3xl p-2 border border-white/5">
-              <NavigationSteps startNodeId={scannedNodeId} endNodeId={targetNodeId} floorId={floorId} />
-            </div>
-          </div>
-        </section>
+          )}
+        </footer>
+      )}
+
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black">
+          <QRAnchorScanner onDetect={handleQRDetect} />
+          <button onClick={() => setShowScanner(false)} className="absolute top-10 right-6 p-3 bg-white/10 rounded-full"><X size={24} /></button>
+        </div>
       )}
     </main>
   );
@@ -304,60 +273,43 @@ export default function NavigatePage() {
 </file>
 
 <file path="app/globals.css">
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* REQUIRED FOR FULL-SCREEN APPS */
-html,
-body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-}
-
-/* APP DEFAULTS */
-body {
-  background-color: #020617; /* slate-950 */
-  color: #f8fafc;           /* slate-50 */
-  overflow: hidden;         /* navigation apps must lock scroll */
-  font-feature-settings: "rlig" 1, "calt" 1;
-}
-
-/* OPTIONAL – if you want theme variables later */
 :root {
-  --app-bg: 2 6 23;
-  --app-fg: 248 250 252;
+  --app-bg: #020617;
 }
 
-/* UTILITIES */
-@layer utilities {
-  .animate-scan {
-    animation: scan 2s linear infinite;
-  }
+body {
+  background-color: var(--app-bg);
+  color: #f8fafc;
+  overflow: hidden;
+  height: 100vh;
+  margin: 0;
+}
 
-  @keyframes scan {
-    0% {
-      transform: translateY(-110px);
-      opacity: 0;
-    }
-    50% {
-      opacity: 1;
-    }
-    100% {
-      transform: translateY(110px);
-      opacity: 0;
-    }
-  }
+/* SUBTLE BACKGROUND WATERMARK */
+body::before {
+  content: 'V';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 80vh;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.02);
+  z-index: -1;
+  pointer-events: none;
+}
 
-  .bg-radial-gradient {
-    background: radial-gradient(
-      circle,
-      transparent 30%,
-      rgba(2, 6, 23, 0.9) 100%
-    );
-  }
+/* Custom utility for the Glassmorphism panels */
+@theme {
+  --color-glass: rgba(15, 23, 42, 0.6);
+}
+
+.glass-panel {
+  background-color: var(--color-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 </file>
 
@@ -417,98 +369,415 @@ export default function RootLayout({
 
 <file path="app/page.tsx">
 "use client";
-import { useRouter } from "next/navigation";
-import { MapPin, ScanLine, ShieldCheck, ChevronRight } from "lucide-react";
 
-export default function Home() {
-  const router = useRouter();
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  Search,
+  RotateCcw,
+  X,
+  Camera,
+  Volume2,
+  VolumeX
+} from "lucide-react";
+
+import QRAnchorScanner from "@/components/QRAnchorScanner";
+import NavigationSteps from "@/components/NavigationSteps";
+import Compass from "@/components/Compass";
+import FloorDetector from "@/components/FloorDetector";
+import MapOverlay from "@/components/MapOverlay";
+
+interface POI {
+  id: string;
+  name: string;
+  qrId: string;
+  nodeId: string;
+  floorId: string;
+  x?: number;
+  y?: number;
+}
+
+export default function NavigatePage() {
+  const [showScanner, setShowScanner] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isMuted, setIsMuted] = useState(false);
+  const [rotation, setRotation] = useState(0);
+
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+
+  const [scannedNode, setScannedNode] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [targetNode, setTargetNode] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [pathCoords, setPathCoords] = useState<{ x: number; y: number }[]>([]);
+
+  const [floorId, setFloorId] = useState("0");
+  const [poiList, setPoiList] = useState<POI[]>([]);
+  const [scanLocked, setScanLocked] = useState(false);
+
+  /* 🔥 NEW: DISTANCE + ETA */
+  const [distance, setDistance] = useState(0);
+  const [eta, setEta] = useState(0);
+
+  const lastPositionRef = useRef<{ x: number; y: number } | null>(null);
+
+  /* ---------------- VOICE ---------------- */
+  const speak = useCallback(
+    (text: string) => {
+      if (isMuted || typeof window === "undefined") return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ta-IN"; // 🔥 Tamil
+      window.speechSynthesis.speak(utterance);
+    },
+    [isMuted]
+  );
+
+  /* ---------------- GYROSCOPE ---------------- */
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha !== null) setRotation(e.alpha);
+    };
+    window.addEventListener("deviceorientation", handleOrientation);
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
+  }, []);
+
+  /* ---------------- FETCH HOSPITAL ---------------- */
+  useEffect(() => {
+    fetch("/api/hospital/active")
+      .then((r) => r.json())
+      .then((d) => d?.id && setHospitalId(d.id));
+  }, []);
+
+  /* ---------------- FETCH POIs ---------------- */
+  useEffect(() => {
+    if (!hospitalId) return;
+
+    fetch(`/api/hospital/${hospitalId}/locations`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d?.locations) return;
+
+        const pois: POI[] = d.locations.flatMap((loc: any) =>
+          loc.pois.map((poi: any) => ({
+            id: poi.id,
+            name: poi.name,
+            qrId: poi.qrId,
+            nodeId: poi.nodeId,
+            floorId: String(poi.floor?.level ?? loc.floor?.level ?? "0"),
+            x: poi.x,
+            y: poi.y
+          }))
+        );
+
+        setPoiList(pois);
+      });
+  }, [hospitalId]);
+
+  /* ---------------- DISTANCE + ETA ---------------- */
+  useEffect(() => {
+    if (!pathCoords.length) return;
+
+    let total = 0;
+
+    for (let i = 1; i < pathCoords.length; i++) {
+      total += Math.hypot(
+        pathCoords[i].x - pathCoords[i - 1].x,
+        pathCoords[i].y - pathCoords[i - 1].y
+      );
+    }
+
+    setDistance(Math.round(total));
+
+    const timeSec = total / 1.4;
+    setEta(Math.ceil(timeSec / 60));
+  }, [pathCoords]);
+
+  /* ---------------- RESET ---------------- */
+  const handleReset = () => {
+    setScannedNode(null);
+    setTargetNode(null);
+    setPathCoords([]);
+    setFloorId("0");
+    setDistance(0);
+    setEta(0);
+  };
+
+  /* ---------------- QR DETECT ---------------- */
+const handleQRDetect = async (data: string) => {
+  if (scanLocked) return;
+  setScanLocked(true);
+
+  try {
+    console.log("📷 QR RAW:", data);
+
+    const qrId = data.includes("/api/scan/")
+      ? data.split("/api/scan/")[1]
+      : data;
+
+    console.log("🆔 QR ID:", qrId);
+
+    const res = await fetch(`/api/scan/${qrId}`);
+
+    if (!res.ok) {
+      const text = await res.text();
+      console.error("❌ API ERROR:", text);
+      setError("Invalid QR");
+      return;
+    }
+
+    const result = await res.json();
+    console.log("✅ API RESPONSE:", result);
+
+    if (
+      !result ||
+      !result.nodeId ||
+      result.x === undefined ||
+      result.y === undefined
+    ) {
+      console.error("❌ Invalid API data");
+      setError("Invalid location data");
+      return;
+    }
+
+    const newPos = {
+      id: result.nodeId,
+      x: Number(result.x),
+      y: Number(result.y),
+    };
+
+    if (isNaN(newPos.x) || isNaN(newPos.y)) {
+      console.error("❌ Coordinates NaN");
+      setError("Invalid coordinates");
+      return;
+    }
+
+    setScannedNode(newPos);
+    setCurrentLocation(result.locationName || "Unknown");
+    setFloorId(result.floorId || "0");
+    setShowScanner(false);
+
+    console.log("🎯 LOCATION SET:", newPos);
+
+  } catch (err) {
+    console.error("🔥 QR HANDLE ERROR:", err);
+    setError("QR failed");
+  } finally {
+    setTimeout(() => setScanLocked(false), 1500);
+  }
+};
+
+  /* ---------------- SEARCH ---------------- */
+  const filteredPOIs = poiList.filter(
+    (p) =>
+      p.floorId === floorId &&
+      p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col items-center">
-      {/* 1. TOP HERO SECTION: Using a rounded-bottom container for visual depth */}
-      <section className="w-full bg-blue-700 pt-16 pb-24 px-6 rounded-b-[48px] shadow-2xl text-center">
-        <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur-lg border border-white/30">
-          <MapPin size={32} className="text-white" />
-        </div>
-        <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">
-          HospiNav <span className="font-light opacity-80">Pro</span>
-        </h1>
-        <p className="text-blue-100 text-sm max-w-[280px] mx-auto leading-relaxed">
-          Navigate the medical center with ease using our live AR-positioning system.
-        </p>
-      </section>
+    <main className="fixed inset-0 bg-slate-950 text-white flex flex-col">
 
-      {/* 2. FLOATING ACTION CARD: Positioned halfway between sections */}
-      <div className="w-full max-w-md px-6 -mt-12">
-        <button 
-          onClick={() => router.push("/navigate")}
-          className="w-full bg-white p-6 rounded-3xl shadow-xl flex items-center gap-5 hover:bg-slate-50 active:scale-[0.98] transition-all border border-slate-100"
-        >
-          <div className="bg-blue-600 p-4 rounded-2xl shadow-lg shadow-blue-200">
-            <ScanLine size={28} className="text-white" />
-          </div>
-          <div className="text-left">
-            <h3 className="text-slate-900 font-bold text-lg leading-tight">Start Navigation</h3>
-            <p className="text-slate-500 text-sm font-medium">Scan a QR code near you</p>
-          </div>
-          <ChevronRight className="ml-auto text-slate-300" size={24} />
+      <FloorDetector onFloor={(f) => setFloorId(String(f))} />
+
+      {/* HEADER */}
+      <header className="h-16 flex justify-between items-center px-4 border-b border-white/10">
+        <Compass />
+
+        <div className="text-xs text-center">
+          <p className="text-blue-500 font-bold">VAZHIKATTI</p>
+          {scannedNode && <p>{currentLocation}</p>}
+        </div>
+
+        <button onClick={() => setIsMuted(!isMuted)}>
+          {isMuted ? <VolumeX /> : <Volume2 />}
         </button>
+      </header>
+
+      {/* MAP */}
+      <div className="flex-1 relative">
+        <MapOverlay
+          poiList={poiList.filter((p) => p.floorId === floorId)}
+          userPos={scannedNode}
+          targetPos={targetNode || undefined}
+          path={pathCoords}
+          rotation={rotation}
+        />
+
+        {/* 🔥 SCAN TO START UI */}
+        {!scannedNode && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-30">
+            <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center mb-6 animate-pulse">
+              <Camera size={42} className="text-blue-500" />
+            </div>
+
+            <h2 className="text-lg font-semibold">Start Navigation</h2>
+
+            <button
+              onClick={() => setShowScanner(true)}
+              className="mt-6 px-6 py-3 bg-blue-600 rounded-xl"
+            >
+              Scan to Start
+            </button>
+          </div>
+        )}
+
+        {/* CAMERA BUTTON */}
+        {scannedNode && (
+          <button
+            onClick={() => setShowScanner(true)}
+            className="absolute top-4 right-4 bg-blue-600 p-3 rounded-full"
+          >
+            <Camera />
+          </button>
+        )}
       </div>
 
-      {/* 3. "HOW TO USE" SECTION: Using a vertical step-indicator layout */}
-      <section className="w-full max-w-md p-8 mt-6">
-        <div className="flex justify-between items-end mb-8">
-          <h4 className="text-slate-400 font-bold text-[11px] uppercase tracking-[0.2em]">How to use</h4>
-          <div className="h-px bg-slate-200 flex-1 ml-4 mb-1.5 opacity-50"></div>
+      {/* FOOTER */}
+      {scannedNode && (
+        <footer className="p-4 border-t border-white/10">
+
+          {targetNode && (
+            <div className="text-xs text-blue-400 mb-2">
+              📏 {distance}m • ⏱️ {eta} min
+            </div>
+          )}
+
+          {!targetNode ? (
+            <>
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search destination..."
+                className="w-full p-3 bg-black rounded"
+              />
+
+              <div className="mt-2 space-y-2">
+                {filteredPOIs.map((poi) => (
+                  <button
+                    key={poi.id}
+                    onClick={() =>
+                      setTargetNode({
+                        id: poi.nodeId,
+                        x: poi.x || 0,
+                        y: poi.y || 0
+                      })
+                    }
+                    className="block w-full text-left"
+                  >
+                    {poi.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <NavigationSteps
+              startNodeId={scannedNode.id}
+              endNodeId={targetNode.id}
+              floorId={floorId}
+              hospitalId={hospitalId!}
+              onStepUpdate={speak}
+              onPathUpdate={setPathCoords}
+            />
+          )}
+        </footer>
+      )}
+
+      {/* SCANNER */}
+      {showScanner && (
+        <div className="fixed inset-0 bg-black z-50">
+          <QRAnchorScanner onDetect={handleQRDetect} />
+          <button
+            onClick={() => setShowScanner(false)}
+            className="absolute top-10 right-6"
+          >
+            <X />
+          </button>
         </div>
-
-        <div className="space-y-8">
-          {/* Step 1 */}
-          <div className="flex gap-5">
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 text-xs flex items-center justify-center font-bold border border-blue-100 ring-4 ring-white">1</div>
-              <div className="w-px h-full bg-slate-200 my-2"></div>
-            </div>
-            <div className="pb-2">
-              <p className="text-slate-800 font-bold text-sm mb-1">Find a Navigator QR</p>
-              <p className="text-slate-500 text-xs leading-relaxed">Located at every entrance, hallway intersection, and elevator.</p>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="flex gap-5">
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 text-xs flex items-center justify-center font-bold border border-blue-100 ring-4 ring-white">2</div>
-              <div className="w-px h-full bg-slate-200 my-2"></div>
-            </div>
-            <div className="pb-2">
-              <p className="text-slate-800 font-bold text-sm mb-1">Allow Camera Access</p>
-              <p className="text-slate-500 text-xs leading-relaxed">We use the camera only to detect your live indoor position via stickers.</p>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="flex gap-5">
-            <div className="flex flex-col items-center">
-              <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 text-xs flex items-center justify-center font-bold border border-blue-100 ring-4 ring-white">3</div>
-            </div>
-            <div>
-              <p className="text-slate-800 font-bold text-sm mb-1">Follow the Blue Line</p>
-              <p className="text-slate-500 text-xs leading-relaxed">Real-time arrows and paths will guide you to your room or department.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. FOOTER: Using a subtle layout for trust markers */}
-      <footer className="mt-auto p-10 flex flex-col items-center gap-3">
-        <div className="flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full text-slate-400">
-          <ShieldCheck size={14} className="text-emerald-500" />
-          <span className="text-[10px] font-bold tracking-widest uppercase">Encrypted Connection</span>
-        </div>
-        <p className="text-[10px] text-slate-300 font-medium">© 2026 HospiNav Pro v2.4</p>
-      </footer>
+      )}
     </main>
+  );
+}
+</file>
+
+<file path="components/ARAnchorScanner.tsx">
+"use client";
+
+import { useEffect, useRef } from "react";
+
+interface Props {
+  rotation: number;
+  targetDirection?: number; // future use
+}
+
+export default function ARAnchorScanner({ rotation }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" }
+        });
+
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } catch (err) {
+        console.error("AR Camera Error:", err);
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      mounted = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black">
+
+      {/* CAMERA */}
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover"
+        muted
+        playsInline
+      />
+
+      {/* 🔥 AR ARROW */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div
+          style={{
+            transform: `rotate(${rotation}deg)`,
+            transition: "transform 0.2s linear"
+          }}
+          className="w-20 h-20"
+        >
+          <svg viewBox="0 0 100 100">
+            <path
+              d="M50 10 L80 80 L50 60 L20 80 Z"
+              fill="#3b82f6"
+            />
+          </svg>
+        </div>
+      </div>
+
+      {/* INFO */}
+      <div className="absolute bottom-10 w-full text-center text-white text-sm bg-black/50 py-2">
+        Follow the arrow to reach destination
+      </div>
+    </div>
   );
 }
 </file>
@@ -536,34 +805,83 @@ export default function CameraScanner() {
 
 <file path="components/Compass.tsx">
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
 
 export default function Compass() {
-  const [angle, setAngle] = useState<number | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
+  const smoothHeading = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const handler = (e: DeviceOrientationEvent) => {
-      if (e.alpha !== null) setAngle(e.alpha);
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha == null) return;
+
+      // Normalize 0–360
+      const raw = (360 - e.alpha) % 360;
+
+      // Smooth interpolation (low-pass filter)
+      smoothHeading.current =
+        smoothHeading.current +
+        (raw - smoothHeading.current) * 0.08;
+
+      setHeading(smoothHeading.current);
     };
-    window.addEventListener("deviceorientation", handler, true);
-    return () => window.removeEventListener("deviceorientation", handler);
+
+    window.addEventListener("deviceorientation", handleOrientation, true);
+
+    return () => {
+      window.removeEventListener("deviceorientation", handleOrientation);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, []);
 
-  return <p>Heading: {angle?.toFixed(1)}°</p>;
+  return (
+    <div className="flex items-center gap-2">
+      {/* Compass Dial */}
+      <div className="relative w-6 h-6 rounded-full border border-white/30 flex items-center justify-center">
+        {/* Needle */}
+        <div
+          className="absolute w-[2px] h-3 bg-red-500 rounded-full origin-bottom transition-transform duration-75 ease-linear"
+          style={{
+            transform: `rotate(${heading ?? 0}deg) translateY(-2px)`,
+          }}
+        />
+      </div>
+
+      {/* Heading number (NO degree symbol) */}
+      <span className="text-xs text-slate-300 tabular-nums">
+        {heading !== null ? Math.round(heading) : "--"}
+      </span>
+    </div>
+  );
 }
 </file>
 
 <file path="components/FloorDetector.tsx">
 "use client";
-import { useEffect } from "react";
 
-export default function FloorDetector({ onFloor }: { onFloor: (f: number) => void }) {
+import { useEffect, useState } from "react";
+
+interface FloorDetectorProps {
+  onFloor: (floor: number) => void;
+  defaultFloor?: number;
+}
+
+export default function FloorDetector({ onFloor, defaultFloor = 0 }: FloorDetectorProps) {
   useEffect(() => {
     const saved = localStorage.getItem("floor");
-    if (saved) onFloor(Number(saved));
-  }, []);
+    
+    // Validate that 'saved' is a legitimate number, otherwise use defaultFloor
+    const numericFloor = (saved && !isNaN(Number(saved))) 
+      ? Number(saved) 
+      : defaultFloor;
 
-  return null;
+    localStorage.setItem("floor", numericFloor.toString());
+    onFloor(numericFloor);
+  }, [defaultFloor, onFloor]);
+
+  return null; 
 }
 </file>
 
@@ -572,68 +890,193 @@ export default function FloorDetector({ onFloor }: { onFloor: (f: number) => voi
 import { useEffect, useState } from "react";
 
 export default function LiveLocation() {
-  const [pos, setPos] = useState<any>(null);
+  const [pos, setPos] = useState<{lat: number, lng: number} | null>(null);
 
   useEffect(() => {
+    if (!navigator.geolocation) return;
+
     const id = navigator.geolocation.watchPosition(
-      p => setPos(p.coords),
-      e => console.error(e),
+      p => setPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => {},
       { enableHighAccuracy: true }
     );
+
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  if (!pos) return <p>Locating...</p>;
-  return <p>Lat: {pos.latitude}, Lng: {pos.longitude}</p>;
+  if (!pos) return <span className="text-xs text-slate-500">GPS...</span>;
+
+  return (
+    <span className="text-xs text-slate-400">
+      📍 {pos.lat.toFixed(4)}, {pos.lng.toFixed(4)}
+    </span>
+  );
 }
 </file>
 
 <file path="components/MapOverlay.tsx">
 "use client";
 
+import { useMemo, useEffect, useState } from "react";
+
+interface MapOverlayProps {
+  poiList: any[];
+  userPos: { x: number; y: number } | null;
+  targetPos?: { x: number; y: number };
+  path: { x: number; y: number }[];
+  rotation: number;
+}
+
 export default function MapOverlay({
-  floor,
-  x,
-  y,
-}: {
-  floor: string;
-  x: number;
-  y: number;
-}) {
+  poiList,
+  userPos,
+  targetPos,
+  path,
+  rotation
+}: MapOverlayProps) {
+
+  /* ✅ Find closest point on path */
+  const currentIndex = useMemo(() => {
+    if (!userPos || path.length === 0) return 0;
+
+    let closestIndex = 0;
+    let minDist = Infinity;
+
+    path.forEach((p, i) => {
+      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIndex = i;
+      }
+    });
+
+    return closestIndex;
+  }, [userPos, path]);
+
+  const completedPath = path.slice(0, currentIndex + 1);
+  const remainingPath = path.slice(currentIndex);
+
+  /* ---------------------------------- */
+  /* ✅ LIVE MOVING ARROW STATE */
+  /* ---------------------------------- */
+  const [arrowPos, setArrowPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [arrowAngle, setArrowAngle] = useState(0);
+
+  useEffect(() => {
+    if (path.length < 2) return;
+
+    const p1 = path[currentIndex];
+    const p2 = path[currentIndex + 1] || p1;
+
+    // Smooth interpolate
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+
+    setArrowPos({ x: midX, y: midY });
+
+    // Calculate direction
+    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
+    setArrowAngle(angle);
+
+  }, [currentIndex, path]);
+
   return (
-    <div className="w-full h-full relative bg-[#020617]">
+    <div className="relative w-full h-full bg-[#020617] overflow-hidden flex items-center justify-center">
 
       {/* GRID */}
       <div
-        className="absolute inset-0"
+        className="absolute inset-0 opacity-10"
         style={{
-          backgroundImage: `
-            linear-gradient(to right, rgba(148,163,184,0.15) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(148,163,184,0.15) 1px, transparent 1px)
-          `,
-          backgroundSize: "64px 64px",
+          backgroundImage: "radial-gradient(#3b82f6 0.5px, transparent 0.5px)",
+          backgroundSize: "30px 30px"
         }}
       />
 
-      {/* USER DOT */}
+      {/* MAP ROTATION */}
       <div
-        className="absolute z-10"
+        className="absolute inset-0"
         style={{
-          left: `${x}%`,
-          top: `${y}%`,
-          transform: "translate(-50%, -50%)",
+          transform: `rotate(${-rotation}deg)`,
+          transition: "transform 0.2s linear"
         }}
       >
-        <div className="w-3 h-3 rounded-full bg-blue-500" />
+        <svg
+          viewBox="0 0 100 100"
+          className="absolute inset-0 w-full h-full p-10"
+        >
+
+          {/* COMPLETED PATH */}
+          {completedPath.length > 1 && (
+            <polyline
+              points={completedPath.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#64748b"
+              strokeWidth="1.5"
+            />
+          )}
+
+          {/* REMAINING PATH */}
+          {remainingPath.length > 1 && (
+            <>
+              <polyline
+                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="4"
+                opacity="0.2"
+              />
+              <polyline
+                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="2"
+              />
+            </>
+          )}
+
+          {/* 🔥 LIVE MOVING ARROW */}
+          {path.length > 1 && (
+            <g
+              transform={`translate(${arrowPos.x}, ${arrowPos.y}) rotate(${arrowAngle})`}
+              style={{ transition: "all 0.3s ease-out" }}
+            >
+              <path
+                d="M-2 -4 L4 0 L-2 4 Z"
+                fill="#3b82f6"
+              />
+            </g>
+          )}
+
+          {/* POIs */}
+          {poiList?.map((poi) => (
+            <g key={poi.id}>
+              <circle cx={poi.x} cy={poi.y} r="1.2" fill="#1e293b" stroke="#3b82f6" strokeWidth="0.3" />
+              <text x={poi.x} y={poi.y + 4} fontSize="2.5" fill="#64748b" textAnchor="middle">
+                {poi.name}
+              </text>
+            </g>
+          ))}
+
+          {/* USER */}
+          {userPos && (
+            <g transform={`translate(${userPos.x}, ${userPos.y})`}>
+              <circle r="6" fill="#3b82f6" className="opacity-20 animate-ping" />
+              <circle r="2.2" fill="#3b82f6" />
+            </g>
+          )}
+
+          {/* DESTINATION */}
+          {targetPos && (
+            <g transform={`translate(${targetPos.x}, ${targetPos.y})`}>
+              <path d="M0 0 L-2 -5 A2 2 0 1 1 2 -5 Z" fill="#ef4444" />
+            </g>
+          )}
+        </svg>
       </div>
 
-      {/* FLOOR LABEL */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2
-                      px-3 py-1 rounded-md
-                      bg-slate-900/80
-                      border border-white/10
-                      text-xs text-slate-300">
-        Floor {floor}
+      {/* DEBUG */}
+      <div className="absolute bottom-4 left-4 text-[8px] text-blue-400/50">
+        Step: {currentIndex}
       </div>
     </div>
   );
@@ -642,88 +1085,112 @@ export default function MapOverlay({
 
 <file path="components/NavigationSteps.tsx">
 "use client";
-import { useEffect, useState } from "react";
-import { ChevronRight, Navigation, MapPin, Loader2, Info } from "lucide-react";
 
-export default function NavigationSteps({ startNodeId, endNodeId, floorId }: any) {
-  const [steps, setSteps] = useState<any[]>([]);
+import { useEffect, useState, useRef } from "react";
+import { ChevronRight, Navigation2 } from "lucide-react";
+
+interface Props {
+  startNodeId: string;
+  endNodeId: string;
+  floorId: string;
+  hospitalId: string;
+  onStepUpdate: (text: string) => void;
+  onPathUpdate: (coords: { x: number; y: number }[]) => void;
+}
+
+export default function NavigationSteps({
+  startNodeId,
+  endNodeId,
+  floorId,
+  hospitalId,
+  onStepUpdate,
+  onPathUpdate
+}: Props) {
+  const [steps, setSteps] = useState<string[]>([]);
+  const [eta, setEta] = useState<number>(0);
+  const [distance, setDistance] = useState<number>(0);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!startNodeId || !endNodeId || !floorId) {
-      setSteps([]);
-      return;
-    }
+  const lastSpokenRef = useRef("");
 
-    const fetchRoute = async () => {
+  useEffect(() => {
+    if (!startNodeId || !endNodeId) return;
+
+    async function getRoute() {
       setLoading(true);
+
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/navigation/shortest-path`, {
+        const res = await fetch("/api/navigation/shortest-path", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ floorId, startNodeId, endNodeId })
+          body: JSON.stringify({
+            hospitalId,
+            floorId,
+            startNodeId,
+            endNodeId
+          })
         });
+
         const data = await res.json();
-        setSteps(data.instructions || []);
-      } catch (e) {
-        console.error("Pathfinding error", e);
+
+        if (data.path) {
+          const cleanPath = data.path.map((p: any) => ({
+            x: Number(p.x),
+            y: Number(p.y)
+          }));
+
+          onPathUpdate(cleanPath);
+
+          /* ✅ DISTANCE */
+          const dist = data.distance || 0;
+          setDistance(dist);
+
+          /* ✅ ETA (walking ~1.2 m/s) */
+          const etaMin = dist > 0 ? Math.round(dist / 70) : 0;
+          setEta(etaMin);
+
+          const generatedSteps = [
+            "Start moving",
+            "Follow the blue path",
+            "Destination reached"
+          ];
+
+          setSteps(generatedSteps);
+
+          if (generatedSteps[0] !== lastSpokenRef.current) {
+            onStepUpdate(generatedSteps[0]);
+            lastSpokenRef.current = generatedSteps[0];
+          }
+        }
+      } catch (err) {
+        console.error(err);
       } finally {
         setLoading(false);
       }
-    };
+    }
 
-    fetchRoute();
-  }, [startNodeId, endNodeId, floorId]);
+    getRoute();
+  }, [startNodeId, endNodeId, floorId, hospitalId]);
 
-  // LOADING STATE: Industrial Spinner
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center p-8 gap-3">
-      <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-      <p className="text-blue-200 text-xs font-bold uppercase tracking-widest">Calculating Path...</p>
-    </div>
-  );
+  if (loading) {
+    return <div className="text-blue-400 text-xs">Calculating...</div>;
+  }
 
   return (
-    <div className="w-full">
-      {steps.length > 0 ? (
-        <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-2 no-scrollbar">
-          {steps.map((s, i) => (
-            <div 
-              key={i} 
-              className="snap-center shrink-0 w-[85%] first:ml-0 last:mr-0 bg-gradient-to-br from-slate-800 to-slate-900 border border-blue-500/30 p-5 rounded-2xl shadow-xl flex items-start gap-4"
-            >
-              <div className="flex flex-col items-center gap-1">
-                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]">
-                   <Navigation size={20} className={i === steps.length - 1 ? "hidden" : "block"} />
-                   <MapPin size={20} className={i === steps.length - 1 ? "block" : "hidden"} />
-                </div>
-                <span className="text-[10px] font-black text-slate-500">STEP {i + 1}</span>
-              </div>
-              
-              <div className="flex-1">
-                <p className="text-white font-semibold text-base leading-tight mb-1">{s}</p>
-                <div className="flex items-center gap-1">
-                   <span className="text-[10px] text-blue-400 font-bold uppercase tracking-tighter">Proceed carefully</span>
-                   <ChevronRight size={12} className="text-blue-400" />
-                </div>
-              </div>
-            </div>
-          ))}
+    <div className="space-y-3">
+
+      {/* ✅ ETA DISPLAY */}
+      <div className="text-xs text-green-400 font-bold">
+        ⏱️ Reach in {eta || 1} min • 📏 {Math.round(distance)} m
+      </div>
+
+      {steps.map((step, i) => (
+        <div key={i} className="flex items-center gap-4 bg-white/5 p-4 rounded-xl">
+          <Navigation2 size={16} />
+          <p>{step}</p>
+          <ChevronRight className="ml-auto" size={16} />
         </div>
-      ) : (
-        /* EMPTY STATE: Professional Guide */
-        <div className="bg-slate-900/50 border border-white/5 rounded-2xl p-6 flex items-center gap-4">
-          <div className="p-3 bg-slate-800 rounded-full text-blue-400">
-            <Info size={24} />
-          </div>
-          <div>
-            <h4 className="text-white font-bold text-sm">Ready to Navigate?</h4>
-            <p className="text-slate-400 text-xs mt-1">
-              {!startNodeId ? "Scan the nearest QR code to verify your position." : "Search for a department to get turn-by-turn directions."}
-            </p>
-          </div>
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -734,109 +1201,123 @@ export default function NavigationSteps({ startNodeId, endNodeId, floorId }: any
 
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { CameraOff, RefreshCw } from "lucide-react";
 
 interface Props {
-  onDetect: (data: any) => void;
+  onDetect: (data: string) => void;
 }
 
 export default function QRAnchorScanner({ onDetect }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastScannedRef = useRef<string | null>(null);
-  const animationFrameIdRef = useRef<number | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState<number>(0);
+  const lastScanRef = useRef<string | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  useEffect(() => {
-    let activeStream: MediaStream | null = null;
-    let isMounted = true; // Prevents state updates on unmounted component
+  const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
-    const scan = () => {
-      const video = videoRef.current;
-      if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-        if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
-        const canvas = canvasRef.current;
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height);
+  /* ---------------- SCAN LOOP ---------------- */
+  const scan = () => {
+    const video = videoRef.current;
 
-          if (code && code.data !== lastScannedRef.current) {
-            lastScannedRef.current = code.data;
-            let parsedData: any;
-            try {
-              parsedData = JSON.parse(code.data);
-            } catch {
-              try {
-                const url = new URL(code.data);
-                parsedData = {
-                  url: code.data,
-                  scanId: url.pathname.split("/").pop(),
-                };
-              } catch {
-                parsedData = { data: code.data };
-              }
-            }
-            onDetect(parsedData);
-            return; // Stop scanning once detected
+    if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
+
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(img.data, img.width, img.height);
+
+        if (code?.data) {
+          if (code.data !== lastScanRef.current) {
+            console.log("✅ QR DETECTED:", code.data);
+
+            lastScanRef.current = code.data;
+            onDetect(code.data);
+
+            /* cooldown */
+            setTimeout(() => {
+              lastScanRef.current = null;
+            }, 2000);
           }
         }
       }
-      if (isMounted) {
-        animationFrameIdRef.current = requestAnimationFrame(scan);
-      }
-    };
+    }
 
-    const startCamera = async () => {
+    rafRef.current = requestAnimationFrame(scan);
+  };
+
+  /* ---------------- CAMERA ---------------- */
+  useEffect(() => {
+    let mounted = true;
+
+    const start = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
+          video: { facingMode: "environment" }
         });
-        
-        if (!isMounted) {
-          stream.getTracks().forEach(t => t.stop());
+
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
           return;
         }
 
-        activeStream = stream;
-        setCameraError(null);
+        streamRef.current = stream;
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute("playsinline", "true");
-          // Catch play() to prevent "AbortError" in rapid UI toggles
-          await videoRef.current.play().catch(() => {}); 
+          await videoRef.current.play();
           scan();
         }
-      } catch (err: any) {
-        if (isMounted) {
-          console.error("Camera access denied:", err);
-          setCameraError("Camera access denied. Use HTTPS and check permissions.");
-        }
+      } catch (err) {
+        console.error(err);
+        setError("Camera permission denied");
       }
     };
 
-    startCamera();
+    start();
 
     return () => {
-      isMounted = false;
-      if (activeStream) activeStream.getTracks().forEach(track => track.stop());
-      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
+      mounted = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [onDetect, retryKey]);
+  }, [retryKey]);
 
   return (
-    <div className="relative w-full h-full bg-black">
-      {cameraError ? (
-        <div className="p-4 text-red-500 text-center flex flex-col items-center justify-center h-full gap-4">
-          <span>{cameraError}</span>
-          <button onClick={() => setRetryKey(k => k + 1)} className="bg-blue-600 px-4 py-2 rounded text-white">Retry</button>
+    <div className="relative w-full h-full bg-black flex items-center justify-center">
+
+      {error ? (
+        <div className="text-center">
+          <CameraOff className="text-red-500 mx-auto mb-4" size={30} />
+          <button
+            onClick={() => setRetryKey((k) => k + 1)}
+            className="bg-blue-600 px-4 py-2 rounded"
+          >
+            <RefreshCw size={16} /> Retry
+          </button>
         </div>
       ) : (
-        <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+        <>
+          <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+
+          {/* Scanner UI */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-72 h-72 border-4 border-blue-500 rounded-3xl animate-pulse" />
+          </div>
+
+          <p className="absolute bottom-10 text-xs bg-black/60 px-4 py-2 rounded">
+            Scan QR to detect location
+          </p>
+        </>
       )}
     </div>
   );
@@ -942,6 +1423,11 @@ export interface RouteStep {
 
 <file path="next.config.mjs">
 /** @type {import('next').NextConfig} */
+
+// ✅ Safe fallback to prevent "Invalid rewrite found" crash
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
+
 const nextConfig = {
   reactStrictMode: true,
 
@@ -950,11 +1436,17 @@ const nextConfig = {
   },
 
   async rewrites() {
+    // 🚨 Guard: Ensure destination is always valid
+    if (!API_BASE_URL.startsWith("http")) {
+      throw new Error(
+        "NEXT_PUBLIC_API_BASE_URL must start with http:// or https://"
+      );
+    }
+
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/:path*`,
-
+        destination: `${API_BASE_URL}/api/:path*`,
       },
     ];
   },
@@ -985,13 +1477,13 @@ export default nextConfig;
     "react-dom": "^18"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
+    "@types/node": "20.19.30",
+    "@types/react": "18.3.27",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.23",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }
 </file>
@@ -1000,7 +1492,6 @@ export default nextConfig;
 module.exports = {
   plugins: {
     '@tailwindcss/postcss': {},
-    'autoprefixer': {},
   },
 }
 </file>
@@ -1050,39 +1541,18 @@ GET /navigation/route
 <file path="tailwind.config.js">
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      colors: {
-        app: {
-          bg: "#020617",     // slate-950
-          panel: "#020617E6", // translucent panels
-          border: "rgba(255,255,255,0.08)",
-          primary: "#2563eb", // blue-600
-        },
-      },
       zIndex: {
-        map: "0",
-        overlay: "10",
-        ui: "20",
-        modal: "50",
-        toast: "100",
-      },
-      spacing: {
-        safe: "env(safe-area-inset-bottom)",
+        'map': '0',
+        'ui': '10',
+        'modal': '50',
       },
       borderRadius: {
-        panel: "1.5rem",
-        control: "1rem",
-      },
-      boxShadow: {
-        panel: "0 10px 40px rgba(0,0,0,0.5)",
-        glow: "0 0 40px rgba(37,99,235,0.4)",
-      },
+        'xl': '1rem',
+        '2xl': '1.5rem',
+      }
     },
   },
   plugins: [],

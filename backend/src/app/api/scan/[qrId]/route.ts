@@ -36,14 +36,12 @@ export async function GET(
       where: { qrId },
       include: {
         map: {
-          select: {
-            hospitalId: true,
-          },
+          select: { hospitalId: true },
         },
         floor: {
           select: {
-            id: true,       // fetch the actual floor ID
-            level: true,    // optional: floor number
+            id: true,
+            level: true,
           },
         },
       },
@@ -56,13 +54,18 @@ export async function GET(
       );
     }
 
+    /* ✅ CRITICAL FIX: include x & y */
     return NextResponse.json(
       {
         nodeId: poi.nodeId,
         locationName: poi.name,
-        floorId: poi.floor?.id || null, // ✅ use actual floor ID
-        floorLevel: poi.floor?.level || null, // optional
+        floorId: poi.floor?.id || null,
+        floorLevel: poi.floor?.level || null,
         hospitalId: poi.map?.hospitalId,
+
+        // ✅ ADD THESE
+        x: Number(poi.x) || 0,
+        y: Number(poi.y) || 0,
       },
       { status: 200, headers: cors(origin) }
     );
@@ -75,4 +78,3 @@ export async function GET(
     );
   }
 }
-

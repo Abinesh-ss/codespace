@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
+import { prisma } from "@/lib/prisma"; // Use consistent prisma import
 import jwt from "jsonwebtoken";
 
 const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
@@ -7,10 +7,7 @@ const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", FRONTEND);
   res.headers.set("Access-Control-Allow-Credentials", "true");
-  res.headers.set(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   return res;
 }
@@ -21,7 +18,6 @@ export async function OPTIONS() {
 
 export async function GET(req: NextRequest) {
   try {
-    // 1. Existing Logic: Token Validation
     const token = req.cookies.get("auth-token")?.value;
     if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
 
@@ -32,19 +28,13 @@ export async function GET(req: NextRequest) {
       return cors(NextResponse.json({ error: "Invalid token" }, { status: 401 }));
     }
 
-    // 2. Updated Logic: Fetch Hospital with related analytics
-    // We use Prisma's '_count' to get totals efficiently
+    // 1. Fetch Hospital with basic counts and recent history
     const hospital = await prisma.hospital.findFirst({
       where: { createdByUser: payload.userId },
       include: {
         _count: {
-          select: { 
-            maps: true, 
-            floors: true, 
-            analyticsEvents: true 
-          }
+          select: { maps: true, floors: true, analyticsEvents: true }
         },
-        // Fetch last 5 activity events
         analyticsEvents: {
           take: 5,
           orderBy: { createdAt: 'desc' }
@@ -56,26 +46,32 @@ export async function GET(req: NextRequest) {
       return cors(NextResponse.json({ error: "No hospital found" }, { status: 404 }));
     }
 
-    // 3. Logic: Aggregating Chart Data (Last 7 Days)
+    // 2. Aggregate Chart Data (Last 7 Days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const stats = await prisma.analyticsEvent.groupBy({
-      by: ['createdAt'],
+    // Fetch raw events to group them by day in JS (more reliable than raw SQL grouping by timestamp)
+    const recentEvents = await prisma.analyticsEvent.findMany({
       where: {
         hospitalId: hospital.id,
         createdAt: { gte: sevenDaysAgo }
       },
-      _count: { id: true }
+      select: { createdAt: true }
     });
 
-    // Format the chart data for Recharts (Frontend)
-    const chartData = stats.map(s => ({
-      day: new Date(s.createdAt).toLocaleDateString('en-US', { weekday: 'short' }),
-      sessions: s._count.id
+    // Grouping logic for Recharts
+    const dayCounts: Record<string, number> = {};
+    recentEvents.forEach(event => {
+      const dayName = new Date(event.createdAt).toLocaleDateString('en-US', { weekday: 'short' });
+      dayCounts[dayName] = (dayCounts[dayName] || 0) + 1;
+    });
+
+    const chartData = Object.entries(dayCounts).map(([day, sessions]) => ({
+      day,
+      sessions
     }));
 
-    // 4. Return combined data matching your original logic + analytics
+    // 3. Construct Payload
     return cors(NextResponse.json({
       ...hospital,
       metrics: {
@@ -84,7 +80,7 @@ export async function GET(req: NextRequest) {
         totalSessions: hospital._count.analyticsEvents,
         recentActivity: hospital.analyticsEvents.map(e => ({
           type: e.eventType,
-          description: e.metadata ? JSON.stringify(e.metadata) : "User activity logged",
+          description: e.metadata ? (typeof e.metadata === 'string' ? e.metadata : JSON.stringify(e.metadata)) : "Activity logged",
           time: e.createdAt
         })),
         chartData: chartData.length > 0 ? chartData : [

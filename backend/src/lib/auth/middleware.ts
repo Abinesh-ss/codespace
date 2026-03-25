@@ -1,17 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
+import jwt from "jsonwebtoken";
 import { isHospitalSubscriptionValid } from "@/lib/services/subscription.service";
-import { auth as extractUserId } from "@/lib/auth";
+
+/* ============================
+   TOKEN EXTRACTOR
+============================ */
+async function extractUserId(req: NextRequest): Promise<string | null> {
+  try {
+    const authHeader = req.headers.get("authorization");
+    const tokenFromHeader = authHeader?.replace("Bearer ", "");
+
+    const tokenFromCookie = req.cookies.get("token")?.value;
+
+    const token = tokenFromHeader || tokenFromCookie;
+
+    if (!token) return null;
+
+    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+
+    return decoded.userId || null;
+  } catch (error) {
+    return null;
+  }
+}
 
 /* ============================
    DYNAMIC CORS HELPERS
 ============================ */
 function getCorsHeaders(req: NextRequest) {
   const origin = req.headers.get("origin") || "";
-  
-  // Allow the specific frontend URL OR any mobile request (which often has no origin)
-  // For production, you can add your mobile app's scheme here
-  const allowedOrigin = origin === process.env.FRONTEND_URL ? origin : origin || "*";
+
+  const allowedOrigin =
+    origin === process.env.FRONTEND_URL
+      ? origin
+      : process.env.FRONTEND_URL || "*";
 
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
@@ -23,20 +46,22 @@ function getCorsHeaders(req: NextRequest) {
 
 export function addCorsHeaders(req: NextRequest, res: NextResponse) {
   const headers = getCorsHeaders(req);
+
   Object.entries(headers).forEach(([key, value]) => {
     res.headers.set(key, value);
   });
+
   return res;
 }
 
 /* ============================
-   BEARER TOKEN PROTECTOR + CORS
+   PROTECT ROUTE WRAPPER
 ============================ */
 export function protectRoute(
   handler: (req: NextRequest, userId: string) => Promise<NextResponse>
 ) {
   return async (req: NextRequest) => {
-    // 1. Handle Preflight (OPTIONS)
+    /* Handle OPTIONS (CORS Preflight) */
     if (req.method === "OPTIONS") {
       return new NextResponse(null, {
         status: 204,
@@ -45,37 +70,49 @@ export function protectRoute(
     }
 
     try {
-      // 2. Extract User ID (This must check both Cookies and Authorization Header)
       const userId = await extractUserId(req);
 
       if (!userId) {
         return new NextResponse(
-          JSON.stringify({ error: "Unauthorized: Please log in." }),
-          { status: 401, headers: getCorsHeaders(req) }
+          JSON.stringify({
+            error: "Unauthorized",
+            message: "Please login again",
+          }),
+          {
+            status: 401,
+            headers: getCorsHeaders(req),
+          }
         );
       }
 
-      // 3. Execute Handler
       const response = await handler(req, userId);
-      
-      // 4. Wrap with CORS
+
       return addCorsHeaders(req, response);
     } catch (error: any) {
-      console.error("Auth Error:", error.message);
+      console.error("Auth Error:", error);
+
       return new NextResponse(
-        JSON.stringify({ error: "Session expired or invalid token" }),
-        { status: 401, headers: getCorsHeaders(req) }
+        JSON.stringify({
+          error: "Session expired",
+          message: "Invalid or expired token",
+        }),
+        {
+          status: 401,
+          headers: getCorsHeaders(req),
+        }
       );
     }
   };
 }
 
 /* ============================
-   Auth Middleware (returns userId and email)
+   AUTH MIDDLEWARE
 ============================ */
-export async function authMiddleware(req: NextRequest): Promise<{ userId: string; email: string }> {
+export async function authMiddleware(
+  req: NextRequest
+): Promise<{ userId: string; email: string }> {
   const userId = await extractUserId(req);
-  
+
   if (!userId) {
     throw new Error("Unauthorized");
   }
@@ -93,7 +130,7 @@ export async function authMiddleware(req: NextRequest): Promise<{ userId: string
 }
 
 /* ============================
-   Hospital Subscription Validation
+   HOSPITAL SUBSCRIPTION CHECK
 ============================ */
 export async function validateHospitalSubscription(hospitalId: string) {
   const hospital = await prisma.hospital.findUnique({
@@ -106,7 +143,9 @@ export async function validateHospitalSubscription(hospitalId: string) {
     },
   });
 
-  if (!hospital) throw new Error("HOSPITAL_NOT_FOUND");
+  if (!hospital) {
+    throw new Error("HOSPITAL_NOT_FOUND");
+  }
 
   const isTamilNaduGovt =
     hospital.state?.toLowerCase() === "tamil nadu" &&

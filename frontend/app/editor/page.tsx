@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation"; // Use Next.js router
 import Layout from "@/components/Layout";
 import {
   MapPin,
@@ -15,19 +16,19 @@ import {
 
 /* ---------- TYPES ---------- */
 interface POI {
-  id: number;                 // UI local id
-  nodeId: string;             // GLOBAL graph id (used for routing)
+  id: number;
+  nodeId: string;
   name: string;
   type: string;
   x: number;
   y: number;
-  floorId: string;            // Floor identifier
+  floorId: string;
 }
 
 interface Route {
   id: number;
-  from: string;               // nodeId
-  to: string;                 // nodeId
+  from: string;
+  to: string;
   distance: number;
   floorId: string;
 }
@@ -42,34 +43,27 @@ interface MapData {
 function validateGraph(pois: POI[], routes: Route[]): string[] {
   const errors: string[] = [];
   const nodeIds = new Set<string>();
-
   for (const poi of pois) {
     if (nodeIds.has(poi.nodeId)) errors.push(`Duplicate nodeId: ${poi.name}`);
     nodeIds.add(poi.nodeId);
   }
-
   for (const route of routes) {
     const from = pois.find((p) => p.nodeId === route.from);
     const to = pois.find((p) => p.nodeId === route.to);
-
     if (!from || !to) {
       errors.push("Route has missing node");
       continue;
     }
-
-    const isConnector =
-      ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(to.type);
-
+    const isConnector = ["stairs", "lift"].includes(from.type) || ["stairs", "lift"].includes(to.type);
     if (from.floorId !== to.floorId && !isConnector) {
       errors.push(`Illegal cross-floor route: ${from.name} → ${to.name}`);
     }
   }
-
   return errors;
 }
 
-/* ---------- COMPONENT ---------- */
 export default function Editor() {
+  const router = useRouter(); // Initialize router
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [hospitalId, setHospitalId] = useState<string | null>(null);
   const [selectedMap, setSelectedMap] = useState<MapData | null>(null);
@@ -106,7 +100,8 @@ export default function Editor() {
         );
 
         if (!authRes.ok) {
-          window.location.href = "/login";
+          // FIX: Use router.replace to avoid the refresh loop
+          router.replace("/login?redirect=/editor");
           return;
         }
 
@@ -128,25 +123,27 @@ export default function Editor() {
           { credentials: "include" }
         );
 
-        const floors = await floorRes.json();
-        const current = floors.find((f: any) => f.id === mapId);
-
-        if (current?.graphData) {
-          setPointsOfInterest(current.graphData.pointsOfInterest || []);
-          setRoutes(current.graphData.routes || []);
+        if (floorRes.ok) {
+          const floors = await floorRes.json();
+          const current = floors.find((f: any) => f.id === mapId);
+          if (current?.graphData) {
+            setPointsOfInterest(current.graphData.pointsOfInterest || []);
+            setRoutes(current.graphData.routes || []);
+          }
         }
 
         setIsAuthenticated(true);
       } catch (err) {
-        console.error(err);
-        window.location.href = "/login";
+        console.error("Initialization error:", err);
+        // Do not redirect on network error to prevent loop; show an error state instead
+        setIsAuthenticated(false);
       }
     };
 
     init();
-  }, []);
+  }, [router]);
 
-  /* ---------- SAVE (UPDATED WITH LONG-TERM SYNC) ---------- */
+  /* ---------- HANDLERS ---------- */
   const handleSaveToDB = async () => {
     if (!hospitalId || !selectedMap) return;
 
@@ -168,18 +165,17 @@ export default function Editor() {
             hospitalId,
             mapId: selectedMap.id,
             name: selectedMap.name,
-            floorLevel: activeFloor, // CRITICAL: Tells backend which floor to sync POIs for
+            floorLevel: activeFloor,
             graphData: { pointsOfInterest, routes },
           }),
         }
       );
 
       const saved = await res.json();
-
-      if (saved.id) {
+      if (res.ok) {
         setSelectedMap((p) => (p ? { ...p, id: saved.id } : null));
         window.history.replaceState(null, "", `/editor?mapId=${saved.id}`);
-        alert("Success: Floor graph and POI table are now in sync.");
+        alert("Saved successfully.");
       }
     } catch (err) {
       console.error(err);
@@ -263,8 +259,18 @@ export default function Editor() {
 
   if (isAuthenticated === null)
     return (
-      <div className="p-10 flex justify-center">
-        <Loader2 className="animate-spin text-indigo-600" />
+      <div className="h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+            <Loader2 className="animate-spin text-indigo-600 w-10 h-10" />
+            <p className="text-slate-500 font-medium">Loading Workspace...</p>
+        </div>
+      </div>
+    );
+
+  if (isAuthenticated === false)
+    return (
+      <div className="h-screen flex items-center justify-center bg-white">
+        <p className="text-red-500">Authentication failed. Please log in again.</p>
       </div>
     );
 
@@ -274,7 +280,7 @@ export default function Editor() {
         {/* HEADER */}
         <div className="h-16 border-b flex items-center justify-between px-8 bg-white z-30 shrink-0">
           <div className="flex items-center gap-4">
-            <h2 className="font-extrabold text-gray-900 tracking-tight">HOSPITAL MAP EDITOR</h2>
+            <h2 className="font-extrabold text-gray-900 tracking-tight uppercase">Hospital Map Editor</h2>
             <span className="text-gray-300">|</span>
             <span className="text-sm text-gray-500 font-medium">{selectedMap?.name}</span>
           </div>
@@ -298,7 +304,7 @@ export default function Editor() {
               SAVE CHANGES
             </button>
             <button 
-              onClick={() => window.location.href = `/qr-generator?hospitalId=${hospitalId}&mapId=${selectedMap?.id}`}
+              onClick={() => router.push(`/qr-generator?hospitalId=${hospitalId}&mapId=${selectedMap?.id}`)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-black transition-all"
             >
               QR GEN
@@ -325,7 +331,7 @@ export default function Editor() {
                   const rect = canvasRef.current!.getBoundingClientRect();
                   setPointsOfInterest(prev => [...prev, { 
                     id: Date.now(), 
-                    nodeId: crypto.randomUUID(), // CRITICAL: Permanent ID for Database Sync
+                    nodeId: crypto.randomUUID(),
                     name: `Room ${prev.length + 1}`, 
                     type: "general", 
                     x: e.clientX - rect.left, 
@@ -336,7 +342,7 @@ export default function Editor() {
               }}
               onMouseMove={onMouseMove}
               onMouseUp={() => { draggingPOIRef.current = null; }}
-              className="relative bg-white shadow-2xl rounded-xl border border-gray-200"
+              className="relative bg-white shadow-2xl rounded-xl border border-gray-200 overflow-hidden"
               style={{ width: '1200px', height: '800px', cursor: activeTool === "poi" ? "crosshair" : "default" }}
             >
               {selectedMap?.url && (

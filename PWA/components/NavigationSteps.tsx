@@ -1,154 +1,146 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Navigation, MapPin, Loader2, AlertCircle } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import { ArrowUp, ArrowUpLeft, ArrowUpRight, CheckCircle2 } from "lucide-react";
 
 interface Props {
+  startNodeId: string;
+  endNodeId: string;
+  floorId: string;
   hospitalId: string;
-  floorId?: string;
-  startNodeId?: string;
-  endNodeId?: string;
+  lang?: "en" | "ta";
+  onStepUpdate: (en: string, ta: string) => void;
+  onPathUpdate: (coords: { x: number; y: number }[]) => void;
 }
 
+const TXT = {
+  en: { start: "Start moving", straight: "Go straight", left: "Turn left", right: "Turn right", end: "You have arrived" },
+  ta: { start: "பயணத்தைத் தொடங்குங்கள்", straight: "நேராகச் செல்லுங்கள்", left: "இடதுபுறம் திரும்புங்கள்", right: "வலதுபுறம் திரும்புங்கள்", end: "இலக்கை அடைந்துவிட்டீர்கள்" }
+};
+
 export default function NavigationSteps({
-  hospitalId,
-  floorId,
   startNodeId,
   endNodeId,
+  floorId,
+  hospitalId,
+  lang = "ta",
+  onStepUpdate,
+  onPathUpdate
 }: Props) {
-  const [steps, setSteps] = useState<string[]>([]);
+  const [steps, setSteps] = useState<{ textEn: string; textTa: string; type: string }[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const lastSpokenRef = useRef("");
 
   useEffect(() => {
-    // Reset state when inputs change
-    setError(null);
+    if (!startNodeId || !endNodeId) return;
 
-    if (!hospitalId || !startNodeId || !endNodeId || !floorId) {
-      setSteps([]);
-      return;
-    }
-
-    const fetchRoute = async () => {
+    async function getRoute() {
       setLoading(true);
       try {
         const res = await fetch("/api/navigation/shortest-path", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            hospitalId,
-            floorId,
-            startNodeId,
-            endNodeId,
-          }),
+          body: JSON.stringify({ hospitalId, floorId, startNodeId, endNodeId })
         });
 
         const data = await res.json();
+        
+        if (data.path && data.path.length > 0) {
+          // ✅ FIX: Ensure coordinates are numbers and logged for debugging
+          const path = data.path.map((p: any) => ({ 
+            x: parseFloat(p.x), 
+            y: parseFloat(p.y) 
+          }));
 
-        if (!res.ok) {
-          // Specifically handle the 400 error we saw in logs
-          if (res.status === 400) {
-            setError("Outdated QR code or location. Please try scanning again.");
-          } else {
-            setError(data.error || "Failed to calculate route.");
+          console.log("📍 Path Calculated:", path);
+          onPathUpdate(path);
+
+          const generated = [];
+          generated.push({ textEn: TXT.en.start, textTa: TXT.ta.start, type: "start" });
+
+          // Turn logic
+          for (let i = 0; i < path.length - 2; i++) {
+            const p1 = path[i];
+            const p2 = path[i + 1];
+            const p3 = path[i + 2];
+
+            const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+            let diff = (angle2 - angle1) * (180 / Math.PI);
+
+            if (diff > 180) diff -= 360;
+            if (diff < -180) diff += 360;
+
+            if (diff < -30) {
+              generated.push({ textEn: TXT.en.left, textTa: TXT.ta.left, type: "left" });
+            } else if (diff > 30) {
+              generated.push({ textEn: TXT.en.right, textTa: TXT.ta.right, type: "right" });
+            } else if (i % 4 === 0) { 
+              generated.push({ textEn: TXT.en.straight, textTa: TXT.ta.straight, type: "straight" });
+            }
           }
-          setSteps([]);
-          return;
-        }
 
-        setSteps(Array.isArray(data?.instructions) ? data.instructions : []);
+          generated.push({ textEn: TXT.en.end, textTa: TXT.ta.end, type: "end" });
+          setSteps(generated);
+
+          const current = generated[0];
+          if (current && current.textEn !== lastSpokenRef.current) {
+            onStepUpdate(current.textEn, current.textTa);
+            lastSpokenRef.current = current.textEn;
+          }
+        }
       } catch (err) {
-        console.error("Navigation error:", err);
-        setError("Network error. Check your connection.");
-        setSteps([]);
+        console.error("❌ Route Fetch Error:", err);
       } finally {
         setLoading(false);
       }
-    };
+    }
+    getRoute();
+  }, [startNodeId, endNodeId, floorId, hospitalId]);
 
-    fetchRoute();
-  }, [hospitalId, floorId, startNodeId, endNodeId]);
+  const getIcon = (type: string) => {
+    switch (type) {
+      case "left": return <ArrowUpLeft className="text-blue-400" />;
+      case "right": return <ArrowUpRight className="text-blue-400" />;
+      case "end": return <CheckCircle2 className="text-emerald-500" />;
+      default: return <ArrowUp className="text-slate-400" />;
+    }
+  };
 
-  /* ---------- LOADING ---------- */
-  if (loading) {
-    return (
-      <div className="flex items-center gap-3 px-2 py-3">
-        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-        <span className="text-sm text-slate-300">Calculating route…</span>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center gap-2 p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
+      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Calculating Path...</span>
+    </div>
+  );
 
-  /* ---------- ERROR STATE ---------- */
-  if (error) {
-    return (
-      <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-2xl">
-        <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-        <span className="text-sm text-red-200">{error}</span>
-      </div>
-    );
-  }
-
-  /* ---------- IDLE ---------- */
-  if (!startNodeId || !endNodeId) {
-    return (
-      <div className="px-2 py-3 text-sm text-slate-400 italic">
-        Awaiting navigation input...
-      </div>
-    );
-  }
-
-  /* ---------- NO PATH FOUND ---------- */
-  if (steps.length === 0 && !loading) {
-    return (
-      <div className="px-2 py-3 text-sm text-slate-400">
-        No available route found on this floor.
-      </div>
-    );
-  }
-
-  /* ---------- ACTIVE NAVIGATION ---------- */
   return (
-    <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar py-1">
-      {steps.map((text, i) => {
-        const isLast = i === steps.length - 1;
-
-        return (
-          <div
-            key={i}
-            className="
-              snap-center shrink-0 w-[85%]
-              bg-slate-900/70 backdrop-blur-md
-              border border-white/10
-              rounded-2xl
-              px-4 py-4
-              flex gap-4
-              shadow-xl
-            "
-          >
-            <div className="flex flex-col items-center gap-1 pt-1">
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center
-                  ${
-                    isLast
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-blue-500/20 text-blue-400"
-                  }
-                `}
-              >
-                {isLast ? <MapPin size={20} /> : <Navigation size={20} />}
-              </div>
-              <span className="text-[10px] text-slate-500 font-bold uppercase mt-1">
-                {isLast ? "Goal" : `Step ${i + 1}`}
-              </span>
-            </div>
-
-            <p className="text-[15px] text-white font-medium leading-relaxed self-center">
-              {text}
-            </p>
+    <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2 custom-scrollbar pb-10">
+      {steps.length === 0 && !loading && (
+        <p className="text-slate-500 text-xs italic text-center p-4">Scan a QR to see steps</p>
+      )}
+      {steps.map((step, i) => (
+        <div 
+          key={i} 
+          className={`flex items-center gap-4 p-4 rounded-2xl transition-all duration-500 ${
+            i === 0 ? "bg-blue-600 shadow-lg shadow-blue-900/40 scale-[1.02]" : "bg-white/5 opacity-40"
+          }`}
+        >
+          <div className={`p-2 rounded-xl ${i === 0 ? "bg-white/20" : "bg-slate-800"}`}>
+            {getIcon(step.type)}
           </div>
-        );
-      })}
+          <div>
+            <p className={`text-sm font-bold ${i === 0 ? "text-white" : "text-slate-300"}`}>
+              {lang === "en" ? step.textEn : step.textTa}
+            </p>
+            {i === 0 && (
+              <p className="text-[9px] text-blue-100 uppercase font-black mt-0.5 opacity-80">
+                Instruction {i + 1}
+              </p>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+/* ---------------- Types ---------------- */
 type GraphPOI = {
   nodeId: string;
-  qrId?: string;
   x: number;
   y: number;
   name?: string;
@@ -20,39 +20,31 @@ type GraphData = {
   routes: GraphRoute[];
 };
 
-type GraphEdge = {
+type Edge = {
   from: string;
   to: string;
   weight: number;
 };
 
-function dijkstra(
-  nodes: string[],
-  edges: GraphEdge[],
-  start: string,
-  end: string
-): string[] | null {
-  const distances: Record<string, number> = {};
-  const previous: Record<string, string | null> = {};
+/* ---------------- DIJKSTRA ---------------- */
+function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
+  const dist: Record<string, number> = {};
+  const prev: Record<string, string | null> = {};
   const unvisited = new Set(nodes);
 
   nodes.forEach((n) => {
-    distances[n] = Infinity;
-    previous[n] = null;
+    dist[n] = Infinity;
+    prev[n] = null;
   });
 
-  if (!unvisited.has(start) || !unvisited.has(end)) return null;
+  dist[start] = 0;
 
-  distances[start] = 0;
-
-  while (unvisited.size > 0) {
+  while (unvisited.size) {
     const current = [...unvisited].reduce((a, b) =>
-      distances[a] < distances[b] ? a : b
+      dist[a] < dist[b] ? a : b
     );
 
-    if (distances[current] === Infinity) break;
     if (current === end) break;
-
     unvisited.delete(current);
 
     const neighbors = edges.filter(
@@ -60,14 +52,14 @@ function dijkstra(
     );
 
     for (const edge of neighbors) {
-      const neighbor = edge.from === current ? edge.to : edge.from;
-      if (!unvisited.has(neighbor)) continue;
+      const next = edge.from === current ? edge.to : edge.from;
+      if (!unvisited.has(next)) continue;
 
-      const alt = distances[current] + edge.weight;
+      const alt = dist[current] + edge.weight;
 
-      if (alt < distances[neighbor]) {
-        distances[neighbor] = alt;
-        previous[neighbor] = current;
+      if (alt < dist[next]) {
+        dist[next] = alt;
+        prev[next] = current;
       }
     }
   }
@@ -77,101 +69,71 @@ function dijkstra(
 
   while (curr) {
     path.unshift(curr);
-    curr = previous[curr];
+    curr = prev[curr];
   }
 
   return path[0] === start ? path : null;
 }
 
+/* ---------------- API ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { hospitalId, floorId, startNodeId, endNodeId } = body;
-
-    console.log("Navigation request:", body);
-
-    if (!hospitalId || !floorId || !startNodeId || !endNodeId) {
-      return NextResponse.json(
-        { error: "Missing required parameters" },
-        { status: 400 }
-      );
-    }
+    const { hospitalId, floorId, startNodeId, endNodeId } = await req.json();
 
     const floor = await prisma.floor.findFirst({
       where: {
-        hospitalId: hospitalId,
-        level: Number(floorId),
+        hospitalId,
+        OR: [{ level: Number(floorId) }, { id: floorId }]
       },
-      select: {
-        graphData: true,
-      },
+      select: { graphData: true }
     });
 
-    if (!floor || !floor.graphData) {
-      return NextResponse.json(
-        { error: "Map graph data not found for this floor" },
-        { status: 400 }
-      );
+    if (!floor?.graphData) {
+      return NextResponse.json({ error: "Map not found" }, { status: 404 });
     }
 
     const graph = floor.graphData as unknown as GraphData;
 
-    const resolveNode = (id: string) => {
-      const poi = graph.pointsOfInterest.find(
-        (p) => p.nodeId === id || p.qrId === id
-      );
-      return poi?.nodeId || null;
-    };
+    const nodes = graph.pointsOfInterest.map((p) => p.nodeId);
 
-    const start = resolveNode(startNodeId);
-    const end = resolveNode(endNodeId);
-
-    console.log("Resolved nodes:", { start, end });
-
-    if (!start || !end) {
-      return NextResponse.json(
-        { error: "Invalid or outdated QR code or destination" },
-        { status: 400 }
-      );
-    }
-
-    const nodeIds = graph.pointsOfInterest.map((p) => p.nodeId);
-
-    const edges: GraphEdge[] = graph.routes.map((r) => ({
+    const edges: Edge[] = graph.routes.map((r) => ({
       from: r.from,
       to: r.to,
-      weight: r.distance || 1,
+      weight: Number(r.distance) || 1
     }));
 
-    const path = dijkstra(nodeIds, edges, start, end);
+    const pathIds = dijkstra(nodes, edges, startNodeId, endNodeId);
 
-    if (!path) {
-      return NextResponse.json(
-        { error: "No path exists between these locations" },
-        { status: 404 }
+    if (!pathIds) {
+      return NextResponse.json({ error: "No path found" }, { status: 404 });
+    }
+
+    /* ✅ CONVERT NODE → COORDS */
+    const path = pathIds.map((id) => {
+      const p = graph.pointsOfInterest.find((poi) => poi.nodeId === id);
+      return {
+        nodeId: id,
+        x: Number(p?.x) || 0,
+        y: Number(p?.y) || 0
+      };
+    });
+
+    /* ✅ TOTAL DISTANCE */
+    let totalDistance = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      totalDistance += Math.hypot(
+        path[i + 1].x - path[i].x,
+        path[i + 1].y - path[i].y
       );
     }
 
-    const instructions = path.map((nodeId, index) => {
-      const poi = graph.pointsOfInterest.find((p) => p.nodeId === nodeId);
-      const name = poi?.name || "Corridor";
-
-      if (index === 0) return `Start at ${name}`;
-      if (index === path.length - 1) return `Arrive at ${name}`;
-      return `Continue towards ${name}`;
-    });
-
     return NextResponse.json({
-      success: true,
       path,
-      instructions,
+      distance: totalDistance
     });
-  } catch (error) {
-    console.error("Navigation API Error:", error);
 
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Navigation Error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

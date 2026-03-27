@@ -1,126 +1,101 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-/* ---------------- CONFIG ---------------- */
-
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
-
-/* ---------------- CORS PREFLIGHT ---------------- */
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": FRONTEND,
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Credentials": "true",
-    },
-  });
+/**
+ * CORS Helper: Applies required headers to every response.
+ * When using credentials: true, Access-Control-Allow-Origin CANNOT be "*".
+ */
+function setCorsHeaders(res: NextResponse, origin: string | null) {
+  const allowedOrigin = origin || process.env.NEXT_PUBLIC_FRONTEND_URL || "";
+  
+  res.headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  return res;
 }
 
-/* ---------------- LOGIN HANDLER ---------------- */
+/* ---------------- OPTIONS (Preflight) ---------------- */
+export async function OPTIONS(req: NextRequest) {
+  const origin = req.headers.get("origin");
+  const res = new NextResponse(null, { status: 204 });
+  return setCorsHeaders(res, origin);
+}
 
+/* ---------------- POST (Login Logic) ---------------- */
 export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
+
   try {
     const { email, password } = await req.json();
 
     if (!email || !password) {
-      return cors(
-        NextResponse.json(
-          { error: "Email and password required" },
-          { status: 400 }
-        )
+      return setCorsHeaders(
+        NextResponse.json({ error: "Email and password required" }, { status: 400 }),
+        origin
       );
     }
 
-    /* ---------- FIND USER ---------- */
-
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
-
+    // 1. Find User
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.passwordHash) {
-      return cors(
-        NextResponse.json(
-          { error: "Invalid credentials" },
-          { status: 401 }
-        )
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid credentials" }, { status: 401 }),
+        origin
       );
     }
 
-    /* ---------- CHECK PASSWORD ---------- */
-
+    // 2. Check Password
     const valid = await bcrypt.compare(password, user.passwordHash);
-
     if (!valid) {
-      return cors(
-        NextResponse.json(
-          { error: "Invalid credentials" },
-          { status: 401 }
-        )
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid credentials" }, { status: 401 }),
+        origin
       );
     }
 
-    /* ---------- CREATE JWT ---------- */
-
+    // 3. Create JWT
     const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-      },
+      { userId: user.id, email: user.email },
       process.env.JWT_SECRET!,
       { expiresIn: "7d" }
     );
 
-    /* ---------- RESPONSE ---------- */
-
+    // 4. Build Response
     const res = NextResponse.json(
       {
         success: true,
         message: "Login successful",
-        user: {
-          id: user.id,
-          email: user.email,
-          planStatus: user.planStatus,
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          planStatus: user.planStatus 
         },
       },
       { status: 200 }
     );
 
-    /* ---------- SET COOKIE ---------- */
-
+    // 5. Set Cookie (Crucial for Cross-Domain)
     res.cookies.set({
       name: "auth-token",
       value: token,
       httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
+      // Must be 'none' and 'secure' for cross-site Vercel domains
+      sameSite: "none", 
+      secure: true,    
     });
 
-    return cors(res);
+    return setCorsHeaders(res, origin);
+
   } catch (error) {
     console.error("Login Error:", error);
-
-    return cors(
-      NextResponse.json(
-        { error: "Login failed" },
-        { status: 500 }
-      )
+    return setCorsHeaders(
+      NextResponse.json({ error: "Internal server error" }, { status: 500 }),
+      origin
     );
   }
 }
-
-/* ---------------- CORS HELPER ---------------- */
-
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
-  res.headers.set("Access-Control-Allow-Credentials", "true");
-  return res;
-}
-

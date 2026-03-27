@@ -57,6 +57,8 @@ export default function LoginContent() {
     }
   };
 
+  console.log("BACKEND:", process.env.NEXT_PUBLIC_BACKEND_URL);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-200">

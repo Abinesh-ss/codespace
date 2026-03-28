@@ -1,6 +1,3 @@
-export const runtime = 'nodejs'; 
-
-
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -17,10 +14,11 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // 1. Skip middleware for internal Next.js tasks and static files
+  // Optimized to avoid complex regex which can sometimes trigger EvalErrors
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
-    /\.(.*)$/.test(pathname)
+    pathname.includes(".") // Simple check for files like .png, .css, .js
   ) {
     return NextResponse.next();
   }

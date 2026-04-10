@@ -1,4 +1,4 @@
-"use clients"
+"use clients";
 
 import { NextRequest, NextResponse } from "next/server";
 

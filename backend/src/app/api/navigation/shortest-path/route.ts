@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+/* ---------------- CORS ---------------- */
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+/* ---------------- OPTIONS HANDLER ---------------- */
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      status: 200,
+      headers: corsHeaders,
+    }
+  );
+}
+
 /* ---------------- Types ---------------- */
 type GraphPOI = {
   nodeId: string;
@@ -27,7 +45,12 @@ type Edge = {
 };
 
 /* ---------------- DIJKSTRA ---------------- */
-function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
+function dijkstra(
+  nodes: string[],
+  edges: Edge[],
+  start: string,
+  end: string
+) {
   const dist: Record<string, number> = {};
   const prev: Record<string, string | null> = {};
   const unvisited = new Set(nodes);
@@ -45,6 +68,7 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
     );
 
     if (current === end) break;
+
     unvisited.delete(current);
 
     const neighbors = edges.filter(
@@ -53,6 +77,7 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
 
     for (const edge of neighbors) {
       const next = edge.from === current ? edge.to : edge.from;
+
       if (!unvisited.has(next)) continue;
 
       const alt = dist[current] + edge.weight;
@@ -78,18 +103,25 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
 /* ---------------- API ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    const { hospitalId, floorId, startNodeId, endNodeId } = await req.json();
+    const { hospitalId, floorId, startNodeId, endNodeId } =
+      await req.json();
 
     const floor = await prisma.floor.findFirst({
       where: {
         hospitalId,
-        OR: [{ level: Number(floorId) }, { id: floorId }]
+        OR: [{ level: Number(floorId) }, { id: floorId }],
       },
-      select: { graphData: true }
+      select: { graphData: true },
     });
 
     if (!floor?.graphData) {
-      return NextResponse.json({ error: "Map not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Map not found" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
     }
 
     const graph = floor.graphData as unknown as GraphData;
@@ -99,27 +131,42 @@ export async function POST(req: NextRequest) {
     const edges: Edge[] = graph.routes.map((r) => ({
       from: r.from,
       to: r.to,
-      weight: Number(r.distance) || 1
+      weight: Number(r.distance) || 1,
     }));
 
-    const pathIds = dijkstra(nodes, edges, startNodeId, endNodeId);
+    const pathIds = dijkstra(
+      nodes,
+      edges,
+      startNodeId,
+      endNodeId
+    );
 
     if (!pathIds) {
-      return NextResponse.json({ error: "No path found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No path found" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
     }
 
     /* ✅ CONVERT NODE → COORDS */
     const path = pathIds.map((id) => {
-      const p = graph.pointsOfInterest.find((poi) => poi.nodeId === id);
+      const p = graph.pointsOfInterest.find(
+        (poi) => poi.nodeId === id
+      );
+
       return {
         nodeId: id,
         x: Number(p?.x) || 0,
-        y: Number(p?.y) || 0
+        y: Number(p?.y) || 0,
       };
     });
 
     /* ✅ TOTAL DISTANCE */
     let totalDistance = 0;
+
     for (let i = 0; i < path.length - 1; i++) {
       totalDistance += Math.hypot(
         path[i + 1].x - path[i].x,
@@ -127,13 +174,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      path,
-      distance: totalDistance
-    });
-
+    return NextResponse.json(
+      {
+        path,
+        distance: totalDistance,
+      },
+      {
+        headers: corsHeaders,
+      }
+    );
   } catch (err) {
     console.error("Navigation Error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+
+    return NextResponse.json(
+      { error: "Server error" },
+      {
+        status: 500,
+        headers: corsHeaders,
+      }
+    );
   }
 }

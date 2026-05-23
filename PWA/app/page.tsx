@@ -1,79 +1,101 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import {
-  Search,
-  RotateCcw,
-  X,
-  Camera,
-  Volume2,
-  VolumeX,
-  MapPin,
-  ArrowRight,
-  Navigation,
-  Activity,
-  Zap
-} from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX, Languages } from "lucide-react";
 
 import QRAnchorScanner from "@/components/QRAnchorScanner";
-import NavigationSteps from "@/components/NavigationSteps";
 import Compass from "@/components/Compass";
 import FloorDetector from "@/components/FloorDetector";
 import MapOverlay from "@/components/MapOverlay";
+import NavigationSteps from "@/components/NavigationSteps";
 
-interface POI {
-  id: string;
-  name: string;
-  qrId: string;
-  nodeId: string;
-  floorId: string;
-  x: number;
-  y: number;
-}
+// ✅ Explicit API Base URL mapping targeting your port 3000 database server
+const BACKEND_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+
+// Complete English to Tamil Translation Dictionary Map
+const translations: { [key: string]: string } = {
+  "Scan QR to Begin": "தொடங்க QR குறியீட்டை ஸ்கேன் செய்யவும்",
+  "Scan QR to Start": "தொடங்க ஸ்கேன் செய்யவும்",
+  "Search Departments...": "பிரிவுகளைத் தேடுங்கள்...",
+  "Active Navigation": "செயலில் உள்ள வழிசெலுத்தல்",
+  "No points loaded. Try re-scanning.": "தரவு கிடைக்கவில்லை. மீண்டும் ஸ்கேன் செய்யவும்.",
+  "No destinations match your search.": "தேடலுக்குரிய இடங்கள் எதுவும் இல்லை."
+};
 
 export default function NavigatePage() {
-  // --- UI & SYSTEM STATES ---
+  // UI & Interaction States
   const [showScanner, setShowScanner] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(""); // Managed search matching state
   const [isMuted, setIsMuted] = useState(false);
+  const [lang, setLang] = useState<"en" | "ta">("en"); // Dynamic language context state
   const [rotation, setRotation] = useState(0);
-  const [lang, setLang] = useState<"en" | "ta">("ta");
-  const [error, setError] = useState<string | null>(null);
-
-  // --- DATA STATES ---
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
-  const [poiList, setPoiList] = useState<POI[]>([]);
-  const [floorMap, setFloorMap] = useState<Record<number, string>>({}); 
+  const [isFloorOverridden, setIsFloorOverridden] = useState(false);
   
-  // --- NAVIGATION & TRACKING STATES ---
+  // Navigation & Mapping States
+  const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
   const [floorId, setFloorId] = useState<string | null>(null);
-  const [scannedNode, setScannedNode] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [targetNode, setTargetNode] = useState<{ id: string; x: number; y: number; name?: string } | null>(null);
-  const [pathCoords, setPathCoords] = useState<{ x: number; y: number }[]>([]);
+  const [poiList, setPoiList] = useState<any[]>([]);
   const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<any>(null);
 
-  // --- LIVE DEAD RECKONING STATES ---
-  const [livePos, setLivePos] = useState<{ x: number, y: number } | null>(null);
-  const [stepCount, setStepCount] = useState(0);
-  const lastAccel = useRef(0);
-  const strideLength = 0.75; // Meters per step
-  const pixelsPerMeter = 18;  // Adjust this based on your map scale
-  const stepThreshold = 13.5; // Sensitivity for step detection
+  // Translation Helper Function
+  const t = useCallback((text: string) => {
+    if (lang === "en") return text;
+    if (translations[text]) return translations[text];
+    
+    // Check for dynamic vocal strings matching current tracking scenarios
+    if (text.startsWith("Position updated. You are at ")) {
+      const loc = text.replace("Position updated. You are at ", "");
+      return `இருப்பிடம் புதுப்பிக்கப்பட்டது. நீங்கள் இப்போது ${loc}-ல் உள்ளீர்கள்.`;
+    }
+    if (text.startsWith("Routing path to ")) {
+      const dest = text.replace("Routing path to ", "");
+      return `${dest}-விற்கான வழித்தடம் கணக்கிடப்படுகிறது.`;
+    }
+    return text;
+  }, [lang]);
 
-  // --- ANALYTICS ---
-  const [distance, setDistance] = useState(0);
-  const [eta, setEta] = useState(0);
-
-  // 1. VOICE ENGINE
-  const speak = useCallback((en: string, ta: string) => {
-    if (isMuted || typeof window === "undefined") return;
+  // Voice Synthesis Setup
+  const speak = useCallback((text: string) => {
+    if (isMuted || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(lang === "en" ? en : ta);
-    utterance.lang = lang === "en" ? "en-US" : "ta-IN";
+    
+    const translatedText = t(text);
+    const utterance = new SpeechSynthesisUtterance(translatedText);
+    
+    if (lang === "ta") {
+      utterance.lang = "ta-IN"; 
+      utterance.rate = 0.9;
+    } else {
+      utterance.lang = "en-US";
+      utterance.rate = 1.0;
+    }
     window.speechSynthesis.speak(utterance);
-  }, [isMuted, lang]);
+  }, [isMuted, lang, t]);
 
-  // 2. GYROSCOPE & COMPASS SENSOR
+  // Caching handlers to preserve functional component rendering sanity
+  const handlePathUpdate = useCallback((coords: { x: number; y: number }[]) => {
+    setPathCoords(coords);
+  }, []);
+
+  const handleStepUpdate = useCallback((text: string) => {
+    speak(text);
+  }, [speak]);
+
+  // Real-time computed filter matching algorithm for search queries
+  const filteredPoiList = useMemo(() => {
+    if (!searchQuery.trim()) return poiList;
+    return poiList.filter((poi) =>
+      poi.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery, poiList]);
+
+  // Device Orientation for Map Rotation
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null) setRotation(e.alpha);
@@ -82,266 +104,289 @@ export default function NavigatePage() {
     return () => window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
-  // 3. PEDESTRIAN DEAD RECKONING (LIVE TRACKING)
+  // Fetch Hospital Context on Mount (Patched to intercept Database Port 3000)
   useEffect(() => {
-    const handleMotion = (e: DeviceMotionEvent) => {
-      if (!livePos || !e.accelerationIncludingGravity) return;
-
-      const { x, y, z } = e.accelerationIncludingGravity;
-      const acceleration = Math.sqrt((x||0)**2 + (y||0)**2 + (z||0)**2);
-      const delta = Math.abs(acceleration - lastAccel.current);
-      lastAccel.current = acceleration;
-
-      // Detect Step Impact
-      if (delta > stepThreshold) {
-        setStepCount(prev => prev + 1);
-        
-        setLivePos(current => {
-          if (!current) return null;
-          // Trigonometry: Move X and Y based on Compass Rotation
-          const rad = (rotation * Math.PI) / 180;
-          return {
-            x: current.x + (Math.sin(rad) * strideLength * pixelsPerMeter),
-            y: current.y - (Math.cos(rad) * strideLength * pixelsPerMeter)
-          };
-        });
-      }
-    };
-
-    window.addEventListener("devicemotion", handleMotion);
-    return () => window.removeEventListener("devicemotion", handleMotion);
-  }, [livePos, rotation]);
-
-  // 4. INITIAL DATA FETCH
-  useEffect(() => {
-    async function initData() {
-      try {
-        const hospRes = await fetch("/api/hospital/active");
-        const hospData = await hospRes.json();
-        
-        if (hospData?.id) {
-          setHospitalId(hospData.id);
-          const locRes = await fetch(`/api/hospital/${hospData.id}/locations`);
-          const locData = await locRes.json();
-
-          if (locData?.locations) {
-            const mapping: Record<number, string> = {};
-            const allPois: POI[] = [];
-
-            locData.locations.forEach((loc: any) => {
-              const sourcePois = loc.pois || []; 
-              sourcePois.forEach((p: any) => {
-                const pFloorId = p.floor?.id || loc.mapId;
-                const pLevel = p.floor?.level;
-                if (pLevel !== undefined) mapping[Number(pLevel)] = String(pFloorId);
-
-                allPois.push({
-                  id: p.id,
-                  name: p.name,
-                  qrId: p.qrId,
-                  nodeId: p.nodeId,
-                  floorId: String(pFloorId), 
-                  x: Number(p.x) || 0,
-                  y: Number(p.y) || 0
-                });
-              });
-            });
-
-            setFloorMap(mapping);
-            setPoiList(allPois);
-            if (allPois.length > 0 && !floorId) setFloorId(allPois[0].floorId);
-          }
+    fetch(`${BACKEND_API_BASE}/api/hospital/active`)
+      .then(async (r) => {
+        const contentType = r.headers.get("content-type");
+        if (!r.ok || !contentType || !contentType.includes("application/json")) {
+          throw new Error("Port 3000 interface did not answer with legitimate JSON parameters.");
         }
-      } catch (err) {
-        console.error("POI Load Error:", err);
-      }
-    }
-    initData();
+        return r.json();
+      })
+      .then((d) => {
+        if (d?.id) setHospitalId(d.id);
+      })
+      .catch(err => {
+        console.error("Initial context fetch failed, ensuring default fallback active:", err);
+      });
   }, []);
 
-  // 5. FILTER LOGIC
-  const filteredPOIs = useMemo(() => {
-    if (!floorId) return [];
-    return poiList.filter(p => 
-      String(p.floorId) === String(floorId) && 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [poiList, floorId, searchQuery]);
+  /**
+   * Robust QR Detection Handler
+   * Handles raw UUIDs or full URLs (http://localhost:3000/api/scan/ID)
+   */
+const handleQRDetect = async (data: any) => {
+  try {
+    console.log("📦 Full QR Payload:", data);
 
-  // 6. DISTANCE CALCULATION
-  useEffect(() => {
-    if (!pathCoords.length) return;
-    let total = 0;
-    for (let i = 1; i < pathCoords.length; i++) {
-      total += Math.hypot(pathCoords[i].x - pathCoords[i-1].x, pathCoords[i].y - pathCoords[i-1].y);
+    // SAFELY extract QR text
+    let raw = "";
+
+    if (typeof data === "string") {
+      raw = data;
+    } else if (data?.data) {
+      raw = data.data;
+    } else if (data?.text) {
+      raw = data.text;
+    } else if (data?.rawValue) {
+      raw = data.rawValue;
+    } else if (Array.isArray(data) && data[0]?.rawValue) {
+      raw = data[0].rawValue;
     }
-    setDistance(Math.round(total * 0.05));
-    setEta(Math.ceil((total * 0.05) / 1.4 / 60) || 1);
-  }, [pathCoords]);
 
-  const handleQRDetect = async (data: any) => {
-    try {
-      const raw = typeof data === "string" ? data : data?.data || data?.url;
-      const qrId = raw.includes("/api/scan/") ? raw.split("/api/scan/")[1] : raw;
-      
-      const res = await fetch(`/api/scan/${qrId}`);
-      const result = await res.json();
-      
-      if (res.ok) {
-        const node = { id: result.nodeId, x: Number(result.x), y: Number(result.y) };
-        setScannedNode(node);
-        setLivePos({ x: node.x, y: node.y }); // Reset Dead Reckoning to QR Location
-        setFloorId(String(result.floorId)); 
-        setCurrentLocation(result.locationName);
-        setShowScanner(false);
-        speak("Location synchronized", "உங்கள் இடம் புதுப்பிக்கப்பட்டது");
+    if (!raw) {
+      throw new Error("QR scanner returned empty data");
+    }
+
+    console.log("✅ QR Raw Data:", raw);
+
+    // Extract UUID from URL if necessary
+    let qrId = raw;
+
+    if (raw.includes("/api/scan/")) {
+      const parts = raw.split("/api/scan/");
+      qrId = parts[parts.length - 1];
+    }
+
+    qrId = qrId.split(/[?#]/)[0].replace(/\/$/, "");
+
+    console.log("✅ Parsed QR ID:", qrId);
+
+    // API Request
+    const res = await fetch(
+      `${BACKEND_API_BASE}/api/scan/${qrId}`,
+      {
+        method: "GET",
+        mode: "cors",
       }
-    } catch (err) {
-      setError("QR Scan Failed");
-    }
-  };
+    );
 
+    if (!res.ok) {
+      throw new Error(`Scan API failed: ${res.status}`);
+    }
+
+    const result = await res.json();
+
+    console.log("✅ Scan API Response:", result);
+
+    // Validate response
+    if (!result?.nodeId) {
+      throw new Error("Missing nodeId in API response");
+    }
+
+    if (result.hospitalId) {
+  setHospitalId(String(result.hospitalId));
+}
+
+    // Update app state
+    setScannedNode({
+      id: result.nodeId,
+      x: Number(result.x) || 0,
+      y: Number(result.y) || 0,
+    });
+
+    setFloorId(
+      result.floorId ? String(result.floorId) : null
+    );
+
+    setIsFloorOverridden(true);
+
+    setPoiList(result.availablePois || []);
+
+    setGraphData(result.graphData || null);
+
+    setCurrentLocation(
+      result.locationName || "Current Location"
+    );
+
+    // IMPORTANT
+    setShowScanner(false);
+
+    speak(
+      `Position updated. You are at ${
+        result.locationName || "current location"
+      }`
+    );
+
+    console.log("✅ Scanner closed successfully");
+  } catch (err: any) {
+    console.error("❌ Critical scan failure:", err);
+
+    alert(
+      `Scanner failed:\n${
+        err?.message || "Unknown error"
+      }`
+    );
+  }
+};
   return (
-    <main className="fixed inset-0 bg-slate-950 text-white flex flex-col overflow-hidden font-sans select-none">
-      <FloorDetector onFloor={(level) => {
-        if (floorMap[level]) setFloorId(floorMap[level]);
+    <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      {/* Auto-detect floor via sensor (if not overridden by QR) */}
+      <FloorDetector onFloor={(f) => {
+        if (!isFloorOverridden) setFloorId(f.toString());
       }} />
 
-      {/* DEAD RECKONING HUD */}
-      <div className="absolute top-20 left-4 z-[100] space-y-2">
-        <div className="bg-black/80 p-2 rounded border border-emerald-500/30 text-[9px] font-mono text-emerald-400">
-          <div className="flex items-center gap-2"><Activity size={10}/> SYSTEM ACTIVE</div>
-          Visible: {filteredPOIs.length} | Steps: {stepCount}
+      {/* HEADER SECTION */}
+      <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
+        <div className="flex items-center gap-2">
+          <Compass />
+          <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-white/5 rounded-lg text-slate-400">
+            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          
+          {/* Real-time Multi-Language System Toggle Switch */}
+          <button 
+            onClick={() => setLang(lang === "en" ? "ta" : "en")} 
+            className="flex items-center gap-1.5 p-2 bg-blue-600/10 hover:bg-blue-600/20 active:scale-95 border border-blue-500/30 rounded-lg text-blue-400 font-bold text-xs transition-all"
+          >
+            <Languages size={14} />
+            <span>{lang === "en" ? "தமிழ்" : "EN"}</span>
+          </button>
         </div>
-        {livePos && (
-          <div className="bg-blue-600/20 p-2 rounded border border-blue-500/30 text-[9px] font-mono text-blue-400 flex items-center gap-2">
-            <Zap size={10} className="animate-pulse" /> LIVE TRACKING ENABLED
-          </div>
-        )}
-      </div>
 
-      <header className="h-16 shrink-0 flex justify-between items-center px-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-xl z-50">
-        <Compass />
-        <div className="text-center">
-          <h1 className="text-[10px] font-black text-blue-500 tracking-[0.3em] uppercase">Vazhikatti</h1>
-          <p className="text-[10px] font-bold text-slate-400 truncate max-w-[120px] uppercase">{currentLocation}</p>
+        <div className="text-center max-w-[40%]">
+          <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
+          <p className="text-[9px] text-slate-400 font-medium truncate uppercase">{t(currentLocation)}</p>
         </div>
-        <div className="flex items-center gap-3">
-           <button onClick={() => setLang(lang === "en" ? "ta" : "en")} className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2 py-1 rounded border border-blue-500/20">
-             {lang === "en" ? "EN" : "தமிழ்"}
-           </button>
-           <button onClick={() => setIsMuted(!isMuted)} className="text-slate-400">
-             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-           </button>
-        </div>
+
+        <button onClick={() => window.location.reload()} className="text-slate-400">
+          <RotateCcw size={18} />
+        </button>
       </header>
 
-      <div className="flex-1 relative z-0">
-        <MapOverlay
-          poiList={filteredPOIs}
-          userPos={livePos ? { ...livePos, id: "live" } : scannedNode}
-          targetPos={targetNode || undefined}
+      {/* INTERACTIVE MAP AREA */}
+      <div className="flex-1 relative w-full overflow-hidden z-10">
+        <MapOverlay 
+          poiList={poiList} 
+          userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
+          targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
           path={pathCoords}
           rotation={rotation}
         />
 
-        {!scannedNode && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-40 flex flex-col items-center justify-center p-10 text-center">
-            <div className="p-6 bg-blue-600/20 rounded-[2rem] border border-blue-500/30 mb-6">
-              <Camera size={40} className="text-blue-500 animate-pulse" />
-            </div>
-            <h2 className="text-2xl font-black mb-2">Hospital Navigator</h2>
-            <p className="text-slate-400 text-sm mb-10">Scan a QR code to enable Live Tracking.</p>
-            <button onClick={() => setShowScanner(true)} className="w-full py-5 bg-blue-600 rounded-3xl font-black text-lg shadow-xl shadow-blue-900/40 active:scale-95 transition-all">
-              START SCANNING
-            </button>
-          </div>
+        {/* Floating Scanner Button */}
+        {scannedNode && !showScanner && (
+          <button 
+            onClick={() => setShowScanner(true)}
+            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-95 transition-all"
+          >
+            <Camera size={20} className="text-white" />
+          </button>
         )}
 
-        {scannedNode && (
-          <div className="absolute bottom-6 right-6 flex flex-col gap-4 z-40">
-            {targetNode && (
-              <button onClick={() => {setTargetNode(null); setPathCoords([]);}} className="p-4 bg-slate-800 rounded-2xl border border-white/10 text-white shadow-2xl">
-                <RotateCcw size={24} />
-              </button>
-            )}
-            <button onClick={() => setShowScanner(true)} className="p-5 bg-blue-600 rounded-3xl shadow-2xl shadow-blue-500/40 text-white active:scale-90 transition-all">
-              <Camera size={28} />
+        {/* Initial Scan Prompt */}
+        {!scannedNode && !showScanner && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
+            <Navigation size={48} className="text-blue-500 animate-pulse" />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="px-8 py-3 bg-blue-600 rounded-xl font-bold shadow-2xl tracking-wide text-sm"
+            >
+              {t("Scan QR to Start")}
             </button>
           </div>
         )}
       </div>
 
+      {/* NAVIGATION & SEARCH DRAWER */}
       {scannedNode && (
-        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-50 rounded-t-[2.5rem] shadow-[0_-15px_40px_rgba(0,0,0,0.5)]">
-          {targetNode ? (
+        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          {!targetNode || isSearching ? (
             <div className="space-y-4">
-              <div className="flex justify-between items-end">
-                <div>
-                  <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1">Navigation Active</span>
-                  <p className="text-xl font-bold truncate max-w-[200px]">{targetNode.name}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-mono font-black text-emerald-400 leading-none">{distance}m</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{eta} min walk</p>
-                </div>
-              </div>
-              <div className="bg-white/5 rounded-3xl p-2 border border-white/5">
-                <NavigationSteps
-                  startNodeId={scannedNode.id}
-                  endNodeId={targetNode.id}
-                  floorId={floorId!}
-                  hospitalId={hospitalId!}
-                  lang={lang}
-                  onStepUpdate={speak}
-                  onPathUpdate={setPathCoords}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
               <div className="relative">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input
+                <input 
+                  autoFocus={isSearching}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Where to?"
-                  className="w-full py-4 pl-14 pr-6 bg-black/40 rounded-2xl border border-white/5 outline-none focus:border-blue-500 font-medium"
+                  placeholder={t("Search Departments...")}
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none focus:border-blue-500 transition-colors placeholder:text-slate-500 text-sm"
+                  onFocus={() => setIsSearching(true)}
                 />
-              </div>
-              <div className="max-h-[280px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                {filteredPOIs.length > 0 ? filteredPOIs.map((poi) => (
-                  <button
-                    key={poi.id}
-                    onClick={() => setTargetNode({ id: poi.nodeId, x: poi.x, y: poi.y, name: poi.name })}
-                    className="w-full flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 active:bg-blue-600 transition-all group"
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+                {(isSearching || searchQuery) && (
+                  <button 
+                    onClick={() => {
+                      setIsSearching(false);
+                      setSearchQuery("");
+                    }} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2"
                   >
-                    <div className="flex items-center gap-4 text-left">
-                      <div className="p-2 bg-slate-800 rounded-xl group-active:bg-blue-400/20">
-                        <MapPin size={20} className="text-blue-500 group-active:text-white" />
-                      </div>
-                      <span className="font-bold text-slate-200 group-active:text-white">{poi.name}</span>
-                    </div>
-                    <ArrowRight size={18} className="text-slate-700 group-active:text-white" />
+                    <X size={18} className="text-slate-500" />
                   </button>
-                )) : (
-                  <div className="py-10 text-center text-slate-600 text-sm italic">No departments found on this floor.</div>
                 )}
               </div>
+              {isSearching && (
+                <div className="max-h-48 overflow-y-auto space-y-2 mt-2 custom-scrollbar">
+                   {filteredPoiList.length > 0 ? filteredPoiList.map((poi) => (
+                      <button 
+                        key={poi.id}
+                        onClick={() => { 
+                          setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
+                          setIsSearching(false); 
+                          setSearchQuery("");
+                          speak(`Routing path to ${poi.name}`);
+                        }} 
+                        className="w-full p-4 text-left bg-white/5 hover:bg-white/10 active:bg-blue-600/20 rounded-xl text-sm border border-white/5 transition-colors"
+                      >
+                        {poi.name}
+                      </button>
+                   )) : (
+                     <div className="p-4 text-center text-slate-500 text-xs italic">
+                        {t("No destinations match your search.")}
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-blue-400 tracking-wide uppercase">
+                  {t("Active Navigation")}
+                </span>
+                <button 
+                  onClick={() => { setTargetNode(null); setPathCoords([]); }}
+                  className="p-1 hover:bg-white/10 rounded-md"
+                >
+                  <X size={16} className="text-slate-500" />
+                </button>
+              </div>
+              <NavigationSteps 
+                hospitalId={hospitalId || ""} 
+                floorId={floorId ? String(floorId) : ""}
+                startNodeId={scannedNode.id ? String(scannedNode.id) : ""}
+                endNodeId={targetNode.id ? String(targetNode.id) : ""}
+                graphData={graphData}
+                lang={lang}
+                onStepUpdate={handleStepUpdate}
+                onPathUpdate={handlePathUpdate}
+              />
             </div>
           )}
         </footer>
       )}
 
+      {/* FULLSCREEN SCANNER OVERLAY */}
       {showScanner && (
-        <div className="fixed inset-0 bg-black z-[100] flex flex-col">
-          <div className="p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-white/10">
-            <h2 className="font-black text-sm uppercase tracking-widest">Identify Location</h2>
-            <button onClick={() => setShowScanner(false)} className="p-3 bg-white/10 rounded-full"><X size={24} /></button>
-          </div>
-          <div className="flex-1 relative">
-            <QRAnchorScanner onDetect={handleQRDetect} />
-          </div>
+        <div className="fixed inset-0 z-50 bg-black">
+          <QRAnchorScanner onDetect={handleQRDetect} />
+          <button 
+            onClick={() => setShowScanner(false)} 
+            className="absolute top-10 right-6 p-4 bg-white/10 backdrop-blur-md rounded-full border border-white/20"
+          >
+            <X size={24} className="text-white" />
+          </button>
         </div>
       )}
     </main>

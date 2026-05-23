@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:3002",
   "https://hospinav.vercel.app",
 ];
 

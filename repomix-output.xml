@@ -155,6 +155,8 @@ backend/
   next-env.d.ts
   next.config.js
   package.json
+  postcss.config.js
+  tailwind.config.js
   tsconfig.json
   tsconfig.tsbuildinfo
 frontend/
@@ -168,6 +170,7 @@ frontend/
     editor/
       page.tsx
     login/
+      LoginContent.tsx
       page.tsx
     pricing/
       page.tsx
@@ -243,147 +246,6 @@ WIRING_ISSUES.md
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="PWA/components/ARAnchorScanner.tsx">
-"use client";
-
-import { useEffect, useRef, useMemo } from "react";
-
-interface Props {
-  rotation: number; // The phone's current compass heading (0-360)
-  userPos: { x: number; y: number } | null;
-  path: { x: number; y: number }[];
-}
-
-export default function ARAnchorScanner({ rotation, userPos, path }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
-  // 1. Determine the target node (the next point on the path)
-  const targetNode = useMemo(() => {
-    if (!userPos || path.length < 2) return null;
-
-    // Find the point on the path the user is currently closest to
-    let closestIndex = 0;
-    let minDist = Infinity;
-    path.forEach((p, i) => {
-      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIndex = i;
-      }
-    });
-
-    // Target the NEXT point after the closest one to lead the user forward
-    return path[closestIndex + 1] || path[closestIndex];
-  }, [userPos, path]);
-
-  // 2. Calculate the "Relative Bearing"
-  // This is the magic: (Angle to Target) - (Current Phone Facing)
-  const arrowRotation = useMemo(() => {
-    if (!userPos || !targetNode) return 0;
-
-    // Calculate angle in degrees from user to target
-    // In SVG/Canvas: atan2(dy, dx)
-    const angleRad = Math.atan2(targetNode.y - userPos.y, targetNode.x - userPos.x);
-    const angleDeg = angleRad * (180 / Math.PI);
-
-    /**
-     * Subtract the phone's rotation. 
-     * If the target is at 90° (East) and your phone is facing 90° (East), 
-     * the arrow should point 0° (Straight ahead on screen).
-     */
-    return angleDeg - rotation;
-  }, [userPos, targetNode, rotation]);
-
-  useEffect(() => {
-    let mounted = true;
-    const startCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }
-        });
-        if (!mounted) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-      } catch (err) {
-        console.error("AR Camera Error:", err);
-      }
-    };
-    startCamera();
-    return () => {
-      mounted = false;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black overflow-hidden">
-      {/* CAMERA FEED */}
-      <video
-        ref={videoRef}
-        className="absolute inset-0 w-full h-full object-cover opacity-80"
-        muted
-        playsInline
-      />
-
-      {/* 🔥 DYNAMIC AR ARROW */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div
-          style={{
-            transform: `rotate(${arrowRotation}deg)`,
-            transition: "transform 0.1s ease-out"
-          }}
-          className="w-32 h-32 flex items-center justify-center"
-        >
-          {/* Arrow SVG */}
-          <svg viewBox="0 0 100 100" className="w-full h-full filter drop-shadow-lg">
-            <defs>
-              <linearGradient id="arrowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#60a5fa" />
-                <stop offset="100%" stopColor="#2563eb" />
-              </linearGradient>
-            </defs>
-            {/* The arrow points UP (0 degrees) by default in SVG */}
-            <path
-              d="M50 5 L90 85 L50 70 L10 85 Z"
-              fill="url(#arrowGradient)"
-              stroke="white"
-              strokeWidth="2"
-            />
-          </svg>
-        </div>
-      </div>
-
-      {/* HUD INFO */}
-      <div className="absolute top-10 left-0 w-full flex justify-center px-6">
-        <div className="bg-black/60 backdrop-blur-md border border-white/20 rounded-2xl px-4 py-3 text-center">
-          <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-1">Navigation Active</p>
-          <p className="text-white text-lg font-medium">
-            {targetNode ? "Follow the arrow" : "Scanning for location..."}
-          </p>
-        </div>
-      </div>
-
-      {/* DISTANCE / PROGRESS */}
-      <div className="absolute bottom-10 w-full px-10">
-         <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-blue-500 transition-all duration-500" 
-              style={{ width: `${(path.indexOf(targetNode!) / path.length) * 100}%` }}
-            />
-         </div>
-      </div>
-    </div>
-  );
-}
-</file>
 
 <file path="backend/prisma/migrations/20251220173112_init/migration.sql">
 -- CreateEnum
@@ -695,47 +557,6 @@ ALTER TABLE "Poi" ADD CONSTRAINT "Poi_floorId_fkey" FOREIGN KEY ("floorId") REFE
 provider = "postgresql"
 </file>
 
-<file path="backend/src/app/api/analytics/dashboard/route.ts">
-import { NextResponse } from "next/server";
-import prisma from "@/lib/db/index";
-import { protectRoute } from "@/lib/auth/middleware";
-
-export const GET = protectRoute(async (req, userId) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const [
-    totalNavigations,
-    todayNavigations,
-    dashboardViews,
-    reportDownloads,
-  ] = await Promise.all([
-    prisma.analyticsEvent.count({
-      where: { eventType: "NAVIGATION_START" },
-    }),
-    prisma.analyticsEvent.count({
-      where: {
-        eventType: "NAVIGATION_START",
-        createdAt: { gte: today },
-      },
-    }),
-    prisma.analyticsEvent.count({
-      where: { eventType: "DASHBOARD_VIEW" },
-    }),
-    prisma.analyticsEvent.count({
-      where: { eventType: "REPORT_DOWNLOAD" },
-    }),
-  ]);
-
-  return NextResponse.json({
-    totalNavigations,
-    todayNavigations,
-    dashboardViews,
-    reportDownloads,
-  });
-});
-</file>
-
 <file path="backend/src/app/api/analytics/record/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
@@ -765,28 +586,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to record activity" }, { status: 500 });
   }
 }
-</file>
-
-<file path="backend/src/app/api/analytics/summary/route.ts">
-import { NextResponse } from "next/server";
-import prisma from "@/lib/db/index";
-import { protectRoute } from "@/lib/auth/middleware";
-
-export const GET = protectRoute(async (req, userId) => {
-  const total = await prisma.analyticsEvent.count({ where: { eventType: "NAVIGATION" } });
-  const today = await prisma.analyticsEvent.count({
-    where: {
-      createdAt: {
-        gte: new Date(new Date().setHours(0, 0, 0, 0)),
-      },
-    },
-  });
-
-  return NextResponse.json({
-    totalNavigations: total,
-    todayNavigations: today,
-  });
-});
 </file>
 
 <file path="backend/src/app/api/analytics/track/route.ts">
@@ -892,34 +691,6 @@ function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", FRONTEND);
   res.headers.set("Access-Control-Allow-Credentials", "true");
   return res;
-}
-</file>
-
-<file path="backend/src/app/api/billing/status/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { addCorsHeaders } from "@/lib/auth/middleware";
-
-export async function GET(req: NextRequest) {
-  const userId = await auth(req);
-  if (!userId) {
-    return addCorsHeaders(
-      new NextResponse("Unauthorized", { status: 401 })
-    );
-  }
-
-  const hospital = await prisma.hospital.findFirst({
-    where: { createdByUser: userId },
-    select: {
-      region: true,
-      subscriptionStatus: true,
-      trialEndsAt: true,
-      paymentProvider: true,
-    },
-  });
-
-  return addCorsHeaders(NextResponse.json(hospital));
 }
 </file>
 
@@ -1039,232 +810,6 @@ export async function POST(req: NextRequest) {
     }, { status: 500 }));
   }
 }
-</file>
-
-<file path="backend/src/app/api/hospital/my/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // Use consistent prisma import
-import jwt from "jsonwebtoken";
-
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
-
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
-  res.headers.set("Access-Control-Allow-Credentials", "true");
-  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-  return res;
-}
-
-export async function OPTIONS() {
-  return cors(new NextResponse(null, { status: 204 }));
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const token = req.cookies.get("auth-token")?.value;
-    if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
-
-    let payload: any;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET!);
-    } catch {
-      return cors(NextResponse.json({ error: "Invalid token" }, { status: 401 }));
-    }
-
-    // 1. Fetch Hospital with basic counts and recent history
-    const hospital = await prisma.hospital.findFirst({
-      where: { createdByUser: payload.userId },
-      include: {
-        _count: {
-          select: { maps: true, floors: true, analyticsEvents: true }
-        },
-        analyticsEvents: {
-          take: 5,
-          orderBy: { createdAt: 'desc' }
-        }
-      }
-    });
-
-    if (!hospital) {
-      return cors(NextResponse.json({ error: "No hospital found" }, { status: 404 }));
-    }
-
-    // 2. Aggregate Chart Data (Last 7 Days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    // Fetch raw events to group them by day in JS (more reliable than raw SQL grouping by timestamp)
-    const recentEvents = await prisma.analyticsEvent.findMany({
-      where: {
-        hospitalId: hospital.id,
-        createdAt: { gte: sevenDaysAgo }
-      },
-      select: { createdAt: true }
-    });
-
-    // Grouping logic for Recharts
-    const dayCounts: Record<string, number> = {};
-    recentEvents.forEach(event => {
-      const dayName = new Date(event.createdAt).toLocaleDateString('en-US', { weekday: 'short' });
-      dayCounts[dayName] = (dayCounts[dayName] || 0) + 1;
-    });
-
-    const chartData = Object.entries(dayCounts).map(([day, sessions]) => ({
-      day,
-      sessions
-    }));
-
-    // 3. Construct Payload
-    return cors(NextResponse.json({
-      ...hospital,
-      metrics: {
-        activeMaps: hospital._count.maps,
-        activeFloors: hospital._count.floors,
-        totalSessions: hospital._count.analyticsEvents,
-        recentActivity: hospital.analyticsEvents.map(e => ({
-          type: e.eventType,
-          description: e.metadata ? (typeof e.metadata === 'string' ? e.metadata : JSON.stringify(e.metadata)) : "Activity logged",
-          time: e.createdAt
-        })),
-        chartData: chartData.length > 0 ? chartData : [
-          { day: "Mon", sessions: 0 },
-          { day: "Tue", sessions: 0 },
-          { day: "Wed", sessions: 0 },
-          { day: "Thu", sessions: 0 },
-          { day: "Fri", sessions: 0 },
-        ]
-      }
-    }));
-
-  } catch (err) {
-    console.error("HOSPITAL MY ERROR:", err);
-    return cors(NextResponse.json({ error: "Server error" }, { status: 500 }));
-  }
-}
-</file>
-
-<file path="backend/src/app/api/hospital/register/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // Ensure this matches your prisma import path
-import { assignHospitalSubscription } from "@/lib/services/subscription.service";
-import { z } from "zod";
-import jwt from "jsonwebtoken";
-
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
-
-/* ---------------- schema ---------------- */
-const hospitalSchema = z.object({
-  name: z.string().min(3),
-  address: z.string().min(5),
-  country: z.string(),
-  state: z.string().optional(),
-});
-
-/* ---------------- CORS ---------------- */
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
-  res.headers.set("Access-Control-Allow-Credentials", "true");
-  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  return res;
-}
-
-export async function OPTIONS() {
-  return cors(new NextResponse(null, { status: 204 }));
-}
-
-/* ---------------- AUTH ---------------- */
-async function authMiddleware(req: NextRequest) {
-  const token = req.cookies.get("auth-token")?.value;
-  if (!token) throw new Error("Unauthorized");
-
-  try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
-      email: string;
-    };
-    return payload;
-  } catch {
-    throw new Error("Invalid token");
-  }
-}
-
-/* ---------------- POST ---------------- */
-export async function POST(req: NextRequest) {
-  try {
-    const { userId, email } = await authMiddleware(req);
-
-    const body = await req.json();
-    const parsed = hospitalSchema.safeParse(body);
-    
-    if (!parsed.success) {
-      return cors(NextResponse.json({ error: "Invalid input. Check name and address length." }, { status: 400 }));
-    }
-
-    // --- Enhanced Region Detection ---
-    const countryStr = parsed.data.country.toLowerCase().trim();
-    const stateStr = parsed.data.state?.toLowerCase().trim() || "";
-
-    let region: "TAMIL_NADU" | "INDIA_OTHER" | "INTERNATIONAL" = "INTERNATIONAL";
-    
-    if (countryStr === "india") {
-      region = stateStr === "tamil nadu" ? "TAMIL_NADU" : "INDIA_OTHER";
-    }
-
-    // --- Create Hospital ---
-    const hospital = await prisma.hospital.create({
-      data: {
-        name: parsed.data.name,
-        country: parsed.data.country,
-        state: parsed.data.state,
-        address: parsed.data.address,
-        createdByUser: userId,
-        region: region,
-        subscriptionStatus: "TRIAL",
-      },
-    });
-
-    // --- Initialize Subscription ---
-    try {
-      await assignHospitalSubscription(
-        hospital.id,
-        parsed.data.country,
-        parsed.data.state,
-        email
-      );
-    } catch (subErr) {
-      console.error("SUBSCRIPTION ASSIGNMENT ERROR:", subErr);
-      // We don't necessarily want to crash the whole request if the sub-service is down, 
-      // but we should log it for manual fixing.
-    }
-
-    return cors(NextResponse.json(hospital, { status: 201 }));
-
-  } catch (err: any) {
-    console.error("REGISTER ERROR:", err);
-    const status = err.message === "Unauthorized" ? 401 : 500;
-    return cors(NextResponse.json({ error: err.message || "Server error" }, { status }));
-  }
-}
-</file>
-
-<file path="backend/src/app/api/reports/generate/route.ts">
-import { NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import { protectRoute } from "@/lib/auth/middleware";
-
-export const GET = protectRoute(async (req, userId) => {
-  const stats = await prisma.analyticsEvent.groupBy({
-    by: ["eventType"],
-    _count: true,
-  });
-
-  return NextResponse.json({
-    generatedAt: new Date(),
-    stats,
-  });
-});
 </file>
 
 <file path="backend/src/app/api/webhooks/razorpay/route.ts">
@@ -1415,45 +960,6 @@ export async function POST(req: NextRequest) {
   }
 
   return new NextResponse(null, { status: 200 });
-}
-</file>
-
-<file path="backend/src/app/globals.css">
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
-}
-
-body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
-  min-height: 100vh;
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
-    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
-}
-
-* {
-  box-sizing: border-box;
 }
 </file>
 
@@ -1624,166 +1130,6 @@ export function verifyToken(req: NextRequest): AuthPayload {
   }
 
   throw new Error("Unauthorized");
-}
-</file>
-
-<file path="backend/src/lib/auth/middleware.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import jwt from "jsonwebtoken";
-import { isHospitalSubscriptionValid } from "@/lib/services/subscription.service";
-
-/* ============================
-   TOKEN EXTRACTOR
-============================ */
-async function extractUserId(req: NextRequest): Promise<string | null> {
-  try {
-    const authHeader = req.headers.get("authorization");
-    const tokenFromHeader = authHeader?.replace("Bearer ", "");
-
-    const tokenFromCookie = req.cookies.get("token")?.value;
-
-    const token = tokenFromHeader || tokenFromCookie;
-
-    if (!token) return null;
-
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
-
-    return decoded.userId || null;
-  } catch (error) {
-    return null;
-  }
-}
-
-/* ============================
-   DYNAMIC CORS HELPERS
-============================ */
-function getCorsHeaders(req: NextRequest) {
-  const origin = req.headers.get("origin") || "";
-
-  const allowedOrigin =
-    origin === process.env.FRONTEND_URL
-      ? origin
-      : process.env.FRONTEND_URL || "*";
-
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Credentials": "true",
-  };
-}
-
-export function addCorsHeaders(req: NextRequest, res: NextResponse) {
-  const headers = getCorsHeaders(req);
-
-  Object.entries(headers).forEach(([key, value]) => {
-    res.headers.set(key, value);
-  });
-
-  return res;
-}
-
-/* ============================
-   PROTECT ROUTE WRAPPER
-============================ */
-export function protectRoute(
-  handler: (req: NextRequest, userId: string) => Promise<NextResponse>
-) {
-  return async (req: NextRequest) => {
-    /* Handle OPTIONS (CORS Preflight) */
-    if (req.method === "OPTIONS") {
-      return new NextResponse(null, {
-        status: 204,
-        headers: getCorsHeaders(req),
-      });
-    }
-
-    try {
-      const userId = await extractUserId(req);
-
-      if (!userId) {
-        return new NextResponse(
-          JSON.stringify({
-            error: "Unauthorized",
-            message: "Please login again",
-          }),
-          {
-            status: 401,
-            headers: getCorsHeaders(req),
-          }
-        );
-      }
-
-      const response = await handler(req, userId);
-
-      return addCorsHeaders(req, response);
-    } catch (error: any) {
-      console.error("Auth Error:", error);
-
-      return new NextResponse(
-        JSON.stringify({
-          error: "Session expired",
-          message: "Invalid or expired token",
-        }),
-        {
-          status: 401,
-          headers: getCorsHeaders(req),
-        }
-      );
-    }
-  };
-}
-
-/* ============================
-   AUTH MIDDLEWARE
-============================ */
-export async function authMiddleware(
-  req: NextRequest
-): Promise<{ userId: string; email: string }> {
-  const userId = await extractUserId(req);
-
-  if (!userId) {
-    throw new Error("Unauthorized");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true },
-  });
-
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  return { userId, email: user.email };
-}
-
-/* ============================
-   HOSPITAL SUBSCRIPTION CHECK
-============================ */
-export async function validateHospitalSubscription(hospitalId: string) {
-  const hospital = await prisma.hospital.findUnique({
-    where: { id: hospitalId },
-    select: {
-      subscriptionStatus: true,
-      trialEndsAt: true,
-      state: true,
-      country: true,
-    },
-  });
-
-  if (!hospital) {
-    throw new Error("HOSPITAL_NOT_FOUND");
-  }
-
-  const isTamilNaduGovt =
-    hospital.state?.toLowerCase() === "tamil nadu" &&
-    hospital.country?.toLowerCase() === "india";
-
-  if (!isTamilNaduGovt && !isHospitalSubscriptionValid(hospital)) {
-    throw new Error("SUBSCRIPTION_EXPIRED");
-  }
 }
 </file>
 
@@ -2226,6 +1572,22 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+</file>
+
+<file path="backend/tailwind.config.js">
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
 </file>
 
 <file path="backend/tsconfig.json">
@@ -3473,67 +2835,12 @@ NEXT_PUBLIC_API_URL=
 NEXT_PUBLIC_APP_URL=
 </file>
 
-<file path="frontend/middleware.ts">
-import { NextRequest, NextResponse } from "next/server";
-
-/**
- * Paths that anyone can see
- */
-const PUBLIC_PATHS = [
-  "/login",
-  "/signup",
-  "/pricing",
-  "/",
-];
-
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // 1. Skip middleware for internal Next.js tasks and static files
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
-    /\.(.*)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
-
-  // 2. If the user is on a public path, let them through
-  if (PUBLIC_PATHS.some((path) => pathname === path)) {
-    return NextResponse.next();
-  }
-
-  // 3. Check for the authentication cookie
-  const token = req.cookies.get("auth-token")?.value;
-
-  // 4. Redirect to login if no token exists and they are trying to access protected routes
-  if (!token) {
-    const loginUrl = new URL("/login", req.url);
-    // Store the attempted path to redirect back after login
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // 5. If token exists, let them proceed
-  return NextResponse.next();
-}
-
-export const config = {
-  // Apply to all routes except API and static assets
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-};
-</file>
-
 <file path="frontend/next-env.d.ts">
 /// <reference types="next" />
 /// <reference types="next/image-types/global" />
 
 // NOTE: This file should not be edited
 // see https://nextjs.org/docs/app/building-your-application/configuring/typescript for more information.
-</file>
-
-<file path="frontend/next.config.js">
-const nextConfig = { reactStrictMode: true }; module.exports = nextConfig;
 </file>
 
 <file path="frontend/postcss.config.js">
@@ -5713,47 +5020,6 @@ export default config;
 }
 </file>
 
-<file path="PWA/app/globals.css">
-@import "tailwindcss";
-
-:root {
-  --app-bg: #020617;
-}
-
-body {
-  background-color: var(--app-bg);
-  color: #f8fafc;
-  overflow: hidden;
-  height: 100vh;
-  margin: 0;
-}
-
-/* SUBTLE BACKGROUND WATERMARK */
-body::before {
-  content: 'V';
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 80vh;
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.02);
-  z-index: -1;
-  pointer-events: none;
-}
-
-/* Custom utility for the Glassmorphism panels */
-@theme {
-  --color-glass: rgba(15, 23, 42, 0.6);
-}
-
-.glass-panel {
-  background-color: var(--color-glass);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-</file>
-
 <file path="PWA/app/layout.tsx">
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
@@ -5808,326 +5074,143 @@ export default function RootLayout({
 }
 </file>
 
-<file path="PWA/app/page.tsx">
+<file path="PWA/components/ARAnchorScanner.tsx">
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import {
-  Search,
-  RotateCcw,
-  X,
-  Camera,
-  Volume2,
-  VolumeX,
-  MapPin,
-  ArrowRight,
-  Navigation,
-  Activity
-} from "lucide-react";
+import { useEffect, useRef, useMemo } from "react";
 
-import QRAnchorScanner from "@/components/QRAnchorScanner";
-import NavigationSteps from "@/components/NavigationSteps";
-import Compass from "@/components/Compass";
-import FloorDetector from "@/components/FloorDetector";
-import MapOverlay from "@/components/MapOverlay";
-
-interface POI {
-  id: string;
-  name: string;
-  qrId: string;
-  nodeId: string;
-  floorId: string;
-  x: number;
-  y: number;
+interface Props {
+  rotation: number; // The phone's current compass heading (0-360)
+  userPos: { x: number; y: number } | null;
+  path: { x: number; y: number }[];
 }
 
-export default function NavigatePage() {
-  // UI & System States
-  const [showScanner, setShowScanner] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isMuted, setIsMuted] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [lang, setLang] = useState<"en" | "ta">("ta");
-  const [error, setError] = useState<string | null>(null);
+export default function ARAnchorScanner({ rotation, userPos, path }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  // Data States
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
-  const [poiList, setPoiList] = useState<POI[]>([]);
-  const [floorMap, setFloorMap] = useState<Record<number, string>>({}); 
-  
-  // Navigation States
-  const [floorId, setFloorId] = useState<string | null>(null);
-  const [scannedNode, setScannedNode] = useState<{ id: string; x: number; y: number } | null>(null);
-  const [targetNode, setTargetNode] = useState<{ id: string; x: number; y: number; name?: string } | null>(null);
-  const [pathCoords, setPathCoords] = useState<{ x: number; y: number }[]>([]);
-  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+  // 1. Determine the target node (the next point on the path)
+  const targetNode = useMemo(() => {
+    if (!userPos || path.length < 2) return null;
 
-  // Analytics
-  const [distance, setDistance] = useState(0);
-  const [eta, setEta] = useState(0);
+    // Find the point on the path the user is currently closest to
+    let closestIndex = 0;
+    let minDist = Infinity;
+    path.forEach((p, i) => {
+      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIndex = i;
+      }
+    });
 
-  // 1. VOICE ENGINE
-  const speak = useCallback((en: string, ta: string) => {
-    if (isMuted || typeof window === "undefined") return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(lang === "en" ? en : ta);
-    utterance.lang = lang === "en" ? "en-US" : "ta-IN";
-    window.speechSynthesis.speak(utterance);
-  }, [isMuted, lang]);
+    // Target the NEXT point after the closest one to lead the user forward
+    return path[closestIndex + 1] || path[closestIndex];
+  }, [userPos, path]);
 
-  // 2. DEVICE SENSORS (Compass)
+  // 2. Calculate the "Relative Bearing"
+  // This is the magic: (Angle to Target) - (Current Phone Facing)
+  const arrowRotation = useMemo(() => {
+    if (!userPos || !targetNode) return 0;
+
+    // Calculate angle in degrees from user to target
+    // In SVG/Canvas: atan2(dy, dx)
+    const angleRad = Math.atan2(targetNode.y - userPos.y, targetNode.x - userPos.x);
+    const angleDeg = angleRad * (180 / Math.PI);
+
+    /**
+     * Subtract the phone's rotation. 
+     * If the target is at 90° (East) and your phone is facing 90° (East), 
+     * the arrow should point 0° (Straight ahead on screen).
+     */
+    return angleDeg - rotation;
+  }, [userPos, targetNode, rotation]);
+
   useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.alpha !== null) setRotation(e.alpha);
-    };
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, []);
-
-  // 3. INITIAL DATA FETCH - Adjusted for your specific API structure
-  useEffect(() => {
-    async function initData() {
+    let mounted = true;
+    const startCamera = async () => {
       try {
-        const hospRes = await fetch("/api/hospital/active");
-        const hospData = await hospRes.json();
-        
-        if (hospData?.id) {
-          setHospitalId(hospData.id);
-          const locRes = await fetch(`/api/hospital/${hospData.id}/locations`);
-          const locData = await locRes.json();
-
-          if (locData?.locations) {
-            const mapping: Record<number, string> = {};
-            const allPois: POI[] = [];
-
-            locData.locations.forEach((loc: any) => {
-              // Your API puts POIs in a 'pois' array inside each location
-              const sourcePois = loc.pois || []; 
-              
-              sourcePois.forEach((p: any) => {
-                // IMPORTANT: Your API nests floor info inside the POI
-                const pFloorId = p.floor?.id || loc.mapId;
-                const pLevel = p.floor?.level;
-
-                // Map Sensor Level (0,1,2) to Floor UUID
-                if (pLevel !== undefined) {
-                  mapping[Number(pLevel)] = String(pFloorId);
-                }
-
-                allPois.push({
-                  id: p.id,
-                  name: p.name,
-                  qrId: p.qrId,
-                  nodeId: p.nodeId,
-                  floorId: String(pFloorId), 
-                  x: Number(p.x) || 0,
-                  y: Number(p.y) || 0
-                });
-              });
-            });
-
-            setFloorMap(mapping);
-            setPoiList(allPois);
-
-            // Default to the first floor found so screen isn't empty
-            if (allPois.length > 0 && !floorId) {
-              setFloorId(allPois[0].floorId);
-            }
-          }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" }
+        });
+        if (!mounted) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
         }
       } catch (err) {
-        console.error("POI Load Error:", err);
+        console.error("AR Camera Error:", err);
       }
-    }
-    initData();
+    };
+    startCamera();
+    return () => {
+      mounted = false;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
 
-  // 4. FILTER LOGIC
-  const filteredPOIs = useMemo(() => {
-    if (!floorId) return [];
-    return poiList.filter(p => 
-      String(p.floorId) === String(floorId) && 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [poiList, floorId, searchQuery]);
-
-  // 5. DISTANCE CALCULATION
-  useEffect(() => {
-    if (!pathCoords.length) return;
-    let total = 0;
-    for (let i = 1; i < pathCoords.length; i++) {
-      total += Math.hypot(pathCoords[i].x - pathCoords[i-1].x, pathCoords[i].y - pathCoords[i-1].y);
-    }
-    setDistance(Math.round(total * 0.05));
-    setEta(Math.ceil((total * 0.05) / 1.4 / 60) || 1);
-  }, [pathCoords]);
-
-  const handleQRDetect = async (data: any) => {
-    try {
-      const raw = typeof data === "string" ? data : data?.data || data?.url;
-      const qrId = raw.includes("/api/scan/") ? raw.split("/api/scan/")[1] : raw;
-      
-      const res = await fetch(`/api/scan/${qrId}`);
-      const result = await res.json();
-      
-      if (res.ok) {
-        setScannedNode({ id: result.nodeId, x: Number(result.x), y: Number(result.y) });
-        setFloorId(String(result.floorId)); 
-        setCurrentLocation(result.locationName);
-        setShowScanner(false);
-        speak("Location updated", "உங்கள் இடம் புதுப்பிக்கப்பட்டது");
-      }
-    } catch (err) {
-      setError("QR Scan Failed");
-    }
-  };
-
   return (
-    <main className="fixed inset-0 bg-slate-950 text-white flex flex-col overflow-hidden font-sans select-none">
-      {/* SENSOR FLOOR DETECTOR */}
-      <FloorDetector onFloor={(level) => {
-        if (floorMap[level]) setFloorId(floorMap[level]);
-      }} />
+    <div className="fixed inset-0 z-50 bg-black overflow-hidden">
+      {/* CAMERA FEED */}
+      <video
+        ref={videoRef}
+        className="absolute inset-0 w-full h-full object-cover opacity-80"
+        muted
+        playsInline
+      />
 
-      {/* DEBUG OVERLAY */}
-      <div className="absolute top-20 left-4 z-[100] bg-black/80 p-2 rounded border border-emerald-500/30 text-[9px] font-mono text-emerald-400">
-        <div className="flex items-center gap-2"><Activity size={10}/> SYSTEM ACTIVE</div>
-        Floor ID: {floorId?.slice(-6) || "NULL"}<br/>
-        Total POIs: {poiList.length}<br/>
-        Visible: {filteredPOIs.length}
+      {/* 🔥 DYNAMIC AR ARROW */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div
+          style={{
+            transform: `rotate(${arrowRotation}deg)`,
+            transition: "transform 0.1s ease-out"
+          }}
+          className="w-32 h-32 flex items-center justify-center"
+        >
+          {/* Arrow SVG */}
+          <svg viewBox="0 0 100 100" className="w-full h-full filter drop-shadow-lg">
+            <defs>
+              <linearGradient id="arrowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#60a5fa" />
+                <stop offset="100%" stopColor="#2563eb" />
+              </linearGradient>
+            </defs>
+            {/* The arrow points UP (0 degrees) by default in SVG */}
+            <path
+              d="M50 5 L90 85 L50 70 L10 85 Z"
+              fill="url(#arrowGradient)"
+              stroke="white"
+              strokeWidth="2"
+            />
+          </svg>
+        </div>
       </div>
 
-      {/* HEADER */}
-      <header className="h-16 shrink-0 flex justify-between items-center px-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-xl z-50">
-        <Compass />
-        <div className="text-center">
-          <h1 className="text-[10px] font-black text-blue-500 tracking-[0.3em] uppercase">Vazhikatti</h1>
-          <p className="text-[10px] font-bold text-slate-400 truncate max-w-[120px] uppercase">{currentLocation}</p>
+      {/* HUD INFO */}
+      <div className="absolute top-10 left-0 w-full flex justify-center px-6">
+        <div className="bg-black/60 backdrop-blur-md border border-white/20 rounded-2xl px-4 py-3 text-center">
+          <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-1">Navigation Active</p>
+          <p className="text-white text-lg font-medium">
+            {targetNode ? "Follow the arrow" : "Scanning for location..."}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-           <button onClick={() => setLang(lang === "en" ? "ta" : "en")} className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2 py-1 rounded border border-blue-500/20">
-             {lang === "en" ? "EN" : "தமிழ்"}
-           </button>
-           <button onClick={() => setIsMuted(!isMuted)} className="text-slate-400">
-             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-           </button>
-        </div>
-      </header>
-
-      {/* MAP AREA */}
-      <div className="flex-1 relative z-0">
-        <MapOverlay
-          poiList={filteredPOIs}
-          userPos={scannedNode}
-          targetPos={targetNode || undefined}
-          path={pathCoords}
-          rotation={rotation}
-        />
-
-        {!scannedNode && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md z-40 flex flex-col items-center justify-center p-10 text-center">
-            <div className="p-6 bg-blue-600/20 rounded-[2rem] border border-blue-500/30 mb-6">
-              <Camera size={40} className="text-blue-500 animate-pulse" />
-            </div>
-            <h2 className="text-2xl font-black mb-2">Hospital Navigator</h2>
-            <p className="text-slate-400 text-sm mb-10">Scan a QR code on any wall to begin.</p>
-            <button onClick={() => setShowScanner(true)} className="w-full py-5 bg-blue-600 rounded-3xl font-black text-lg shadow-xl shadow-blue-900/40 active:scale-95 transition-all">
-              START SCANNING
-            </button>
-          </div>
-        )}
-
-        {scannedNode && (
-          <div className="absolute bottom-6 right-6 flex flex-col gap-4 z-40">
-            {targetNode && (
-              <button onClick={() => {setTargetNode(null); setPathCoords([]);}} className="p-4 bg-slate-800 rounded-2xl border border-white/10 text-white shadow-2xl">
-                <RotateCcw size={24} />
-              </button>
-            )}
-            <button onClick={() => setShowScanner(true)} className="p-5 bg-blue-600 rounded-3xl shadow-2xl shadow-blue-500/40 text-white active:scale-90 transition-all">
-              <Camera size={28} />
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* NAVIGATION FOOTER */}
-      {scannedNode && (
-        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-50 rounded-t-[2.5rem] shadow-[0_-15px_40px_rgba(0,0,0,0.5)]">
-          {targetNode ? (
-            <div className="space-y-4">
-              <div className="flex justify-between items-end">
-                <div>
-                  <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1">Navigation Active</span>
-                  <p className="text-xl font-bold truncate max-w-[200px]">{targetNode.name}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-mono font-black text-emerald-400 leading-none">{distance}m</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase mt-1">{eta} min walk</p>
-                </div>
-              </div>
-              <div className="bg-white/5 rounded-3xl p-2 border border-white/5">
-                <NavigationSteps
-                  startNodeId={scannedNode.id}
-                  endNodeId={targetNode.id}
-                  floorId={floorId!}
-                  hospitalId={hospitalId!}
-                  lang={lang}
-                  onStepUpdate={speak}
-                  onPathUpdate={setPathCoords}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              <div className="relative">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Where to? (e.g. Pharmacy)"
-                  className="w-full py-4 pl-14 pr-6 bg-black/40 rounded-2xl border border-white/5 outline-none focus:border-blue-500 transition-all font-medium"
-                />
-              </div>
-              <div className="max-h-[280px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                {filteredPOIs.length > 0 ? filteredPOIs.map((poi) => (
-                  <button
-                    key={poi.id}
-                    onClick={() => setTargetNode({ id: poi.nodeId, x: poi.x, y: poi.y, name: poi.name })}
-                    className="w-full flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 active:bg-blue-600 transition-all group"
-                  >
-                    <div className="flex items-center gap-4 text-left">
-                      <div className="p-2 bg-slate-800 rounded-xl group-active:bg-blue-400/20">
-                        <MapPin size={20} className="text-blue-500 group-active:text-white" />
-                      </div>
-                      <span className="font-bold text-slate-200 group-active:text-white">{poi.name}</span>
-                    </div>
-                    <ArrowRight size={18} className="text-slate-700 group-active:text-white" />
-                  </button>
-                )) : (
-                  <div className="py-10 text-center text-slate-600 text-sm italic">
-                    No departments found on this floor.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </footer>
-      )}
-
-      {/* SCANNER MODAL */}
-      {showScanner && (
-        <div className="fixed inset-0 bg-black z-[100] flex flex-col">
-          <div className="p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-white/10">
-            <h2 className="font-black text-sm uppercase tracking-widest">Identify Location</h2>
-            <button onClick={() => setShowScanner(false)} className="p-3 bg-white/10 rounded-full"><X size={24} /></button>
-          </div>
-          <div className="flex-1 relative">
-            <QRAnchorScanner onDetect={handleQRDetect} />
-          </div>
-        </div>
-      )}
-    </main>
+      {/* DISTANCE / PROGRESS */}
+      <div className="absolute bottom-10 w-full px-10">
+         <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-blue-500 transition-all duration-500" 
+              style={{ width: `${(path.indexOf(targetNode!) / path.length) * 100}%` }}
+            />
+         </div>
+      </div>
+    </div>
   );
 }
 </file>
@@ -6150,217 +5233,6 @@ export default function CameraScanner() {
   }, []);
 
   return <video ref={ref} style={{ width: "100%" }} />;
-}
-</file>
-
-<file path="PWA/components/LiveLocation.tsx">
-"use client";
-import { useEffect, useState } from "react";
-
-export default function LiveLocation() {
-  const [pos, setPos] = useState<{lat: number, lng: number} | null>(null);
-
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-
-    const id = navigator.geolocation.watchPosition(
-      p => setPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => {},
-      { enableHighAccuracy: true }
-    );
-
-    return () => navigator.geolocation.clearWatch(id);
-  }, []);
-
-  if (!pos) return <span className="text-xs text-slate-500">GPS...</span>;
-
-  return (
-    <span className="text-xs text-slate-400">
-      📍 {pos.lat.toFixed(4)}, {pos.lng.toFixed(4)}
-    </span>
-  );
-}
-</file>
-
-<file path="PWA/components/MapOverlay.tsx">
-"use client";
-
-import { useMemo, useEffect, useState } from "react";
-
-interface MapOverlayProps {
-  poiList: any[];
-  userPos: { x: number; y: number } | null;
-  targetPos?: { x: number; y: number };
-  path: { x: number; y: number }[];
-  rotation: number;
-}
-
-export default function MapOverlay({
-  poiList,
-  userPos,
-  targetPos,
-  path,
-  rotation
-}: MapOverlayProps) {
-  const [smoothUserPos, setSmoothUserPos] = useState({ x: userPos?.x || 0, y: userPos?.y || 0 });
-
-  // 1. DYNAMIC VIEWBOX CALCULATION
-  // This ensures the map scales to fit your specific hospital data
-  const viewBox = useMemo(() => {
-    if (!poiList.length) return "0 0 1000 1000";
-    
-    const padding = 100;
-    const xs = poiList.map(p => p.x);
-    const ys = poiList.map(p => p.y);
-    
-    const minX = Math.min(...xs) - padding;
-    const minY = Math.min(...ys) - padding;
-    const maxX = Math.max(...xs) + padding;
-    const maxY = Math.max(...ys) + padding;
-    
-    return `${minX} ${minY} ${maxX - minX} ${maxY - minY}`;
-  }, [poiList]);
-
-  const currentIndex = useMemo(() => {
-    if (!userPos || path.length === 0) return 0;
-    let closestIndex = 0;
-    let minDist = Infinity;
-    path.forEach((p, i) => {
-      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIndex = i;
-      }
-    });
-    return closestIndex;
-  }, [userPos, path]);
-
-  useEffect(() => {
-    if (userPos) setSmoothUserPos(userPos);
-  }, [userPos]);
-
-  const completedPath = path.slice(0, currentIndex + 1);
-  const remainingPath = path.slice(currentIndex);
-
-  return (
-    <div className="relative w-full h-full bg-[#020617] overflow-hidden flex items-center justify-center">
-      {/* GRID LAYER */}
-      <div
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: "radial-gradient(#3b82f6 0.5px, transparent 0.5px)",
-          backgroundSize: "40px 40px"
-        }}
-      />
-
-      {/* MAP ROTATION & CAMERA LAYER */}
-      <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center"
-        style={{
-          transform: `rotate(${-rotation}deg)`,
-          transition: "transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)"
-        }}
-      >
-        <svg
-          viewBox={viewBox} 
-          className="w-[90%] h-[90%]"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* PATHS */}
-          {completedPath.length > 1 && (
-            <polyline
-              points={completedPath.map((p) => `${p.x},${p.y}`).join(" ")}
-              fill="none"
-              stroke="#475569"
-              strokeWidth="6"
-              strokeDasharray="12,12"
-            />
-          )}
-
-          {remainingPath.length > 1 && (
-            <>
-              <polyline
-                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="30"
-                opacity="0.1"
-                strokeLinecap="round"
-              />
-              <polyline
-                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
-
-          {/* ROOM LABELS */}
-          {poiList?.map((poi) => (
-            <g key={poi.id}>
-              <circle cx={poi.x} cy={poi.y} r="8" fill="#1e293b" stroke="#3b82f6" strokeWidth="2" />
-              <text 
-                x={poi.x} 
-                y={poi.y + 25} 
-                fontSize="16" 
-                fill="#94a3b8" 
-                textAnchor="middle" 
-                className="font-bold pointer-events-none"
-                style={{ 
-                  // This keeps labels upright even when the map rotates!
-                  transform: `rotate(${rotation}deg)`, 
-                  transformOrigin: `${poi.x}px ${poi.y}px`,
-                  transition: "transform 0.4s"
-                }}
-              >
-                {poi.name}
-              </text>
-            </g>
-          ))}
-
-          {/* USER POSITION (The Blue Dot) */}
-          {userPos && (
-            <g 
-              transform={`translate(${smoothUserPos.x}, ${smoothUserPos.y})`}
-              style={{ transition: "transform 0.5s ease-out" }}
-            >
-              <circle r="40" fill="#3b82f6" className="opacity-20 animate-ping" />
-              <circle r="15" fill="#3b82f6" stroke="white" strokeWidth="4" />
-              {/* Directional Beak */}
-              <path d="M-10 -12 L0 -25 L10 -12 Z" fill="white" />
-            </g>
-          )}
-
-          {/* DESTINATION */}
-          {targetPos && (
-            <g transform={`translate(${targetPos.x}, ${targetPos.y})`}>
-              <path 
-                d="M0 0 L-15 -40 A15 15 0 1 1 15 -40 Z" 
-                fill="#ef4444" 
-                stroke="white" 
-                strokeWidth="3"
-              />
-            </g>
-          )}
-        </svg>
-      </div>
-
-      {/* INFO PILLS */}
-      <div className="absolute bottom-4 left-4 flex gap-2 z-50">
-        <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-lg text-[10px] text-blue-400 font-bold backdrop-blur-md">
-          FLOOR {poiList[0]?.floorId?.slice(-4).toUpperCase() || '0'}
-        </div>
-        {path.length > 0 && (
-           <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[10px] text-emerald-400 font-bold backdrop-blur-md uppercase">
-            Navigation Active
-           </div>
-        )}
-      </div>
-    </div>
-  );
 }
 </file>
 
@@ -6461,14 +5333,6 @@ export interface RouteStep {
 // see https://nextjs.org/docs/app/building-your-application/configuring/typescript for more information.
 </file>
 
-<file path="PWA/postcss.config.js">
-module.exports = {
-  plugins: {
-    '@tailwindcss/postcss': {},
-  },
-}
-</file>
-
 <file path="PWA/README.md">
 # HospiNav Pro – Standard Indoor Navigation PWA
 
@@ -6509,27 +5373,6 @@ GET /navigation/route
 ## Notes
 - Replace QR decoder with `jsqr` or `zxing`
 - Add real floor maps in `/public/maps/`
-</file>
-
-<file path="PWA/tailwind.config.js">
-/** @type {import('tailwindcss').Config} */
-module.exports = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
-  theme: {
-    extend: {
-      zIndex: {
-        'map': '0',
-        'ui': '10',
-        'modal': '50',
-      },
-      borderRadius: {
-        'xl': '1rem',
-        '2xl': '1.5rem',
-      }
-    },
-  },
-  plugins: [],
-};
 </file>
 
 <file path="PWA/tsconfig.json">
@@ -6825,130 +5668,100 @@ fetchPath(hospitalId, startPosition.nodeId, 'destinationNode', userEmail)
 }
 </file>
 
-<file path="backend/src/app/api/auth/login/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+<file path="backend/src/app/api/analytics/dashboard/route.ts">
+export const dynamic = 'force-dynamic';
 
-/* ---------------- CONFIG ---------------- */
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db/index";
+import { protectRoute } from "@/lib/auth/middleware";
 
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
+export const GET = protectRoute(async (req, userId) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-/* ---------------- CORS PREFLIGHT ---------------- */
+  const [
+    totalNavigations,
+    todayNavigations,
+    dashboardViews,
+    reportDownloads,
+  ] = await Promise.all([
+    prisma.analyticsEvent.count({
+      where: { eventType: "NAVIGATION_START" },
+    }),
+    prisma.analyticsEvent.count({
+      where: {
+        eventType: "NAVIGATION_START",
+        createdAt: { gte: today },
+      },
+    }),
+    prisma.analyticsEvent.count({
+      where: { eventType: "DASHBOARD_VIEW" },
+    }),
+    prisma.analyticsEvent.count({
+      where: { eventType: "REPORT_DOWNLOAD" },
+    }),
+  ]);
 
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": FRONTEND,
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Credentials": "true",
+  return NextResponse.json({
+    totalNavigations,
+    todayNavigations,
+    dashboardViews,
+    reportDownloads,
+  });
+});
+</file>
+
+<file path="backend/src/app/api/analytics/summary/route.ts">
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db/index";
+import { protectRoute } from "@/lib/auth/middleware";
+
+export const GET = protectRoute(async (req, userId) => {
+  const total = await prisma.analyticsEvent.count({ where: { eventType: "NAVIGATION" } });
+  const today = await prisma.analyticsEvent.count({
+    where: {
+      createdAt: {
+        gte: new Date(new Date().setHours(0, 0, 0, 0)),
+      },
     },
   });
-}
 
-/* ---------------- LOGIN HANDLER ---------------- */
+  return NextResponse.json({
+    totalNavigations: total,
+    todayNavigations: today,
+  });
+});
+</file>
 
-export async function POST(req: NextRequest) {
-  try {
-    const { email, password } = await req.json();
+<file path="backend/src/app/api/billing/status/route.ts">
+export const dynamic = 'force-dynamic';
 
-    if (!email || !password) {
-      return cors(
-        NextResponse.json(
-          { error: "Email and password required" },
-          { status: 400 }
-        )
-      );
-    }
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import { auth } from "@/lib/auth";
+import { addCorsHeaders } from "@/lib/auth/middleware";
 
-    /* ---------- FIND USER ---------- */
-
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (!user || !user.passwordHash) {
-      return cors(
-        NextResponse.json(
-          { error: "Invalid credentials" },
-          { status: 401 }
-        )
-      );
-    }
-
-    /* ---------- CHECK PASSWORD ---------- */
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-
-    if (!valid) {
-      return cors(
-        NextResponse.json(
-          { error: "Invalid credentials" },
-          { status: 401 }
-        )
-      );
-    }
-
-    /* ---------- CREATE JWT ---------- */
-
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: "7d" }
-    );
-
-    /* ---------- RESPONSE ---------- */
-
-    const res = NextResponse.json(
-      {
-        success: true,
-        message: "Login successful",
-        user: {
-          id: user.id,
-          email: user.email,
-          planStatus: user.planStatus,
-        },
-      },
-      { status: 200 }
-    );
-
-    /* ---------- SET COOKIE ---------- */
-
-    res.cookies.set({
-      name: "auth-token",
-      value: token,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-    });
-
-    return cors(res);
-  } catch (error) {
-    console.error("Login Error:", error);
-
-    return cors(
-      NextResponse.json(
-        { error: "Login failed" },
-        { status: 500 }
-      )
+export async function GET(req: NextRequest) {
+  const userId = await auth(req);
+  if (!userId) {
+    return addCorsHeaders(
+      new NextResponse("Unauthorized", { status: 401 })
     );
   }
-}
 
-/* ---------------- CORS HELPER ---------------- */
+  const hospital = await prisma.hospital.findFirst({
+    where: { createdByUser: userId },
+    select: {
+      region: true,
+      subscriptionStatus: true,
+      trialEndsAt: true,
+      paymentProvider: true,
+    },
+  });
 
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
-  res.headers.set("Access-Control-Allow-Credentials", "true");
-  return res;
+  return addCorsHeaders(NextResponse.json(hospital));
 }
 </file>
 
@@ -7082,148 +5895,105 @@ export async function GET(
 }
 </file>
 
-<file path="backend/src/app/api/hospital/floor/route.ts">
+<file path="backend/src/app/api/hospital/my/route.ts">
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-import crypto from "crypto";
+import { prisma } from "@/lib/prisma"; // Use consistent prisma import
+import jwt from "jsonwebtoken";
 
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
+const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
 
-// Helper to handle CORS
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", FRONTEND);
   res.headers.set("Access-Control-Allow-Credentials", "true");
   res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   return res;
 }
 
-// OPTIONS handler for CORS preflight
 export async function OPTIONS() {
   return cors(new NextResponse(null, { status: 204 }));
 }
 
-/** * GET: Fetch floors for a specific hospital
- */
 export async function GET(req: NextRequest) {
   try {
     const token = req.cookies.get("auth-token")?.value;
     if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
 
-    const { searchParams } = new URL(req.url);
-    const hospitalId = searchParams.get("hospitalId");
-
-    if (!hospitalId) {
-      return cors(NextResponse.json({ error: "hospitalId is required" }, { status: 400 }));
+    let payload: any;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET!);
+    } catch {
+      return cors(NextResponse.json({ error: "Invalid token" }, { status: 401 }));
     }
 
-    const floors = await prisma.floor.findMany({
-      where: { hospitalId: hospitalId },
-      orderBy: { level: 'asc' }
+    // 1. Fetch Hospital with basic counts and recent history
+    const hospital = await prisma.hospital.findFirst({
+      where: { createdByUser: payload.userId },
+      include: {
+        _count: {
+          select: { maps: true, floors: true, analyticsEvents: true }
+        },
+        analyticsEvents: {
+          take: 5,
+          orderBy: { createdAt: 'desc' }
+        }
+      }
     });
 
-    return cors(NextResponse.json(floors, { status: 200 }));
-  } catch (error: any) {
-    console.error("GET Floor Error:", error);
-    return cors(NextResponse.json({ error: error.message }, { status: 500 }));
-  }
-}
+    if (!hospital) {
+      return cors(NextResponse.json({ error: "No hospital found" }, { status: 404 }));
+    }
 
-/**
- * POST: Save or Update Floor and Sync POIs
- */
-export async function POST(req: NextRequest) {
-  try {
-    const token = req.cookies.get("auth-token")?.value;
-    if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
+    // 2. Aggregate Chart Data (Last 7 Days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const body = await req.json();
-    const { hospitalId, name, graphData, mapId, level } = body;
-
-    // 1. FIND VALID MAP ID
-    // Your DB requires POIs to link to a 'Map' record, not just the 'Hospital' ID.
-    const hospitalMap = await prisma.map.findFirst({
-      where: { hospitalId: hospitalId }
+    // Fetch raw events to group them by day in JS (more reliable than raw SQL grouping by timestamp)
+    const recentEvents = await prisma.analyticsEvent.findMany({
+      where: {
+        hospitalId: hospital.id,
+        createdAt: { gte: sevenDaysAgo }
+      },
+      select: { createdAt: true }
     });
 
-    if (!hospitalMap) {
-      return cors(NextResponse.json({ 
-        error: "No Map record found for this hospital. Please create a map in the dashboard first." 
-      }, { status: 400 }));
-    }
+    // Grouping logic for Recharts
+    const dayCounts: Record<string, number> = {};
+    recentEvents.forEach(event => {
+      const dayName = new Date(event.createdAt).toLocaleDateString('en-US', { weekday: 'short' });
+      dayCounts[dayName] = (dayCounts[dayName] || 0) + 1;
+    });
 
-    let floor;
-    const isPlaceholder = !mapId || mapId === 'new-uuid-placeholder' || mapId === 'undefined';
-    
-    // 2. SAVE OR UPDATE FLOOR (Using upsert to prevent P2025 errors)
-    if (isPlaceholder) {
-      floor = await prisma.floor.create({
-        data: { 
-          name: name || "New Floor", 
-          hospitalId, 
-          graphData: graphData || {}, 
-          level: Number(level || 1) 
-        },
-      });
-    } else {
-      floor = await prisma.floor.upsert({
-        where: { id: mapId },
-        update: { 
-          graphData: graphData || {}, 
-          name: name || "Updated Floor", 
-          level: Number(level) || 0 
-        },
-        create: {
-          id: mapId,
-          name: name || "New Floor",
-          hospitalId,
-          graphData: graphData || {},
-          level: Number(level) || 0
-        }
-      });
-    }
+    const chartData = Object.entries(dayCounts).map(([day, sessions]) => ({
+      day,
+      sessions
+    }));
 
-    // 3. ATOMIC SYNC: POI Table <=> Graph JSON
-    if (graphData && graphData.pointsOfInterest && Array.isArray(graphData.pointsOfInterest)) {
-      const currentNodesInGraph = graphData.pointsOfInterest.map((p: any) => p.nodeId);
+    // 3. Construct Payload
+    return cors(NextResponse.json({
+      ...hospital,
+      metrics: {
+        activeMaps: hospital._count.maps,
+        activeFloors: hospital._count.floors,
+        totalSessions: hospital._count.analyticsEvents,
+        recentActivity: hospital.analyticsEvents.map(e => ({
+          type: e.eventType,
+          description: e.metadata ? (typeof e.metadata === 'string' ? e.metadata : JSON.stringify(e.metadata)) : "Activity logged",
+          time: e.createdAt
+        })),
+        chartData: chartData.length > 0 ? chartData : [
+          { day: "Mon", sessions: 0 },
+          { day: "Tue", sessions: 0 },
+          { day: "Wed", sessions: 0 },
+          { day: "Thu", sessions: 0 },
+          { day: "Fri", sessions: 0 },
+        ]
+      }
+    }));
 
-      // Delete POIs removed from the editor
-      await prisma.poi.deleteMany({
-        where: { 
-          floorId: floor.id, 
-          nodeId: { notIn: currentNodesInGraph } 
-        }
-      });
-
-      // Upsert current POIs
-      await Promise.all(graphData.pointsOfInterest.map((poiNode: any) => {
-        return prisma.poi.upsert({
-          where: { nodeId: poiNode.nodeId },
-          update: {
-            name: poiNode.name,
-            x: poiNode.x,
-            y: poiNode.y,
-            type: poiNode.type || "general",
-            floorId: floor.id,
-          },
-          create: {
-            nodeId: poiNode.nodeId,
-            name: poiNode.name,
-            qrId: poiNode.qrId || crypto.randomUUID(),
-            x: poiNode.x,
-            y: poiNode.y,
-            type: poiNode.type || "general",
-            floorId: floor.id,
-            mapId: hospitalMap.id // Using the valid Map ID found in Step 1
-          }
-        });
-      }));
-    }
-
-    return cors(NextResponse.json(floor, { status: 201 }));
-  } catch (error: any) {
-    console.error("Floor Sync Error:", error);
-    return cors(NextResponse.json({ error: error.message }, { status: 500 }));
+  } catch (err) {
+    console.error("HOSPITAL MY ERROR:", err);
+    return cors(NextResponse.json({ error: "Server error" }, { status: 500 }));
   }
 }
 </file>
@@ -7306,6 +6076,328 @@ export async function POST(req: NextRequest) {
 }
 </file>
 
+<file path="backend/src/app/api/hospital/register/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma"; // Ensure this matches your prisma import path
+import { assignHospitalSubscription } from "@/lib/services/subscription.service";
+import { z } from "zod";
+import jwt from "jsonwebtoken";
+
+const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
+
+/* ---------------- schema ---------------- */
+const hospitalSchema = z.object({
+  name: z.string().min(3),
+  address: z.string().min(5),
+  country: z.string(),
+  state: z.string().optional(),
+});
+
+/* ---------------- CORS ---------------- */
+function cors(res: NextResponse) {
+  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  return res;
+}
+
+export async function OPTIONS() {
+  return cors(new NextResponse(null, { status: 204 }));
+}
+
+/* ---------------- AUTH ---------------- */
+async function authMiddleware(req: NextRequest) {
+  const token = req.cookies.get("auth-token")?.value;
+  if (!token) throw new Error("Unauthorized");
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as {
+      userId: string;
+      email: string;
+    };
+    return payload;
+  } catch {
+    throw new Error("Invalid token");
+  }
+}
+
+/* ---------------- POST ---------------- */
+export async function POST(req: NextRequest) {
+  try {
+    const { userId, email } = await authMiddleware(req);
+
+    const body = await req.json();
+    const parsed = hospitalSchema.safeParse(body);
+    
+    if (!parsed.success) {
+      return cors(NextResponse.json({ error: "Invalid input. Check name and address length." }, { status: 400 }));
+    }
+
+    // --- Enhanced Region Detection ---
+    const countryStr = parsed.data.country.toLowerCase().trim();
+    const stateStr = parsed.data.state?.toLowerCase().trim() || "";
+
+    let region: "TAMIL_NADU" | "INDIA_OTHER" | "INTERNATIONAL" = "INTERNATIONAL";
+    
+    if (countryStr === "india") {
+      region = stateStr === "tamil nadu" ? "TAMIL_NADU" : "INDIA_OTHER";
+    }
+
+    // --- Create Hospital ---
+    const hospital = await prisma.hospital.create({
+      data: {
+        name: parsed.data.name,
+        country: parsed.data.country,
+        state: parsed.data.state,
+        address: parsed.data.address,
+        createdByUser: userId,
+        region: region,
+        subscriptionStatus: "TRIAL",
+      },
+    });
+
+    // --- Initialize Subscription ---
+    try {
+      await assignHospitalSubscription(
+        hospital.id,
+        parsed.data.country,
+        parsed.data.state,
+        email
+      );
+    } catch (subErr) {
+      console.error("SUBSCRIPTION ASSIGNMENT ERROR:", subErr);
+      // We don't necessarily want to crash the whole request if the sub-service is down, 
+      // but we should log it for manual fixing.
+    }
+
+    return cors(NextResponse.json(hospital, { status: 201 }));
+
+  } catch (err: any) {
+    console.error("REGISTER ERROR:", err);
+    const status = err.message === "Unauthorized" ? 401 : 500;
+    return cors(NextResponse.json({ error: err.message || "Server error" }, { status }));
+  }
+}
+</file>
+
+<file path="backend/src/app/api/reports/generate/route.ts">
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import { protectRoute } from "@/lib/auth/middleware";
+
+export const GET = protectRoute(async (req, userId) => {
+  const stats = await prisma.analyticsEvent.groupBy({
+    by: ["eventType"],
+    _count: true,
+  });
+
+  return NextResponse.json({
+    generatedAt: new Date(),
+    stats,
+  });
+});
+</file>
+
+<file path="backend/src/app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+</file>
+
+<file path="backend/src/lib/auth/middleware.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import jwt from "jsonwebtoken";
+import { isHospitalSubscriptionValid } from "@/lib/services/subscription.service";
+
+/* ============================
+   TOKEN EXTRACTOR
+============================ */
+async function extractUserId(req: NextRequest): Promise<string | null> {
+  try {
+    const authHeader = req.headers.get("authorization");
+    const tokenFromHeader = authHeader?.replace("Bearer ", "");
+
+    const tokenFromCookie = req.cookies.get("token")?.value;
+
+    const token = tokenFromHeader || tokenFromCookie;
+
+    if (!token) return null;
+
+    const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+
+    return decoded.userId || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/* ============================
+   DYNAMIC CORS HELPERS
+============================ */
+function getCorsHeaders(req: NextRequest) {
+  const origin = req.headers.get("origin") || "";
+
+  const allowedOrigin =
+    origin === process.env.FRONTEND_URL
+      ? origin
+      : process.env.FRONTEND_URL || "*";
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+export function addCorsHeaders(req: NextRequest, res: NextResponse) {
+  const headers = getCorsHeaders(req);
+
+  Object.entries(headers).forEach(([key, value]) => {
+    res.headers.set(key, value);
+  });
+
+  return res;
+}
+
+/* ============================
+   PROTECT ROUTE WRAPPER
+============================ */
+export function protectRoute(
+  handler: (req: NextRequest, userId: string) => Promise<NextResponse>
+) {
+  return async (req: NextRequest) => {
+    /* Handle OPTIONS (CORS Preflight) */
+    if (req.method === "OPTIONS") {
+      return new NextResponse(null, {
+        status: 204,
+        headers: getCorsHeaders(req),
+      });
+    }
+
+    try {
+      const userId = await extractUserId(req);
+
+      if (!userId) {
+        return new NextResponse(
+          JSON.stringify({
+            error: "Unauthorized",
+            message: "Please login again",
+          }),
+          {
+            status: 401,
+            headers: getCorsHeaders(req),
+          }
+        );
+      }
+
+      const response = await handler(req, userId);
+
+      return addCorsHeaders(req, response);
+    } catch (error: any) {
+      console.error("Auth Error:", error);
+
+      return new NextResponse(
+        JSON.stringify({
+          error: "Session expired",
+          message: "Invalid or expired token",
+        }),
+        {
+          status: 401,
+          headers: getCorsHeaders(req),
+        }
+      );
+    }
+  };
+}
+
+/* ============================
+   AUTH MIDDLEWARE
+============================ */
+export async function authMiddleware(
+  req: NextRequest
+): Promise<{ userId: string; email: string }> {
+  const userId = await extractUserId(req);
+
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  return { userId, email: user.email };
+}
+
+/* ============================
+   HOSPITAL SUBSCRIPTION CHECK
+============================ */
+export async function validateHospitalSubscription(hospitalId: string) {
+  const hospital = await prisma.hospital.findUnique({
+    where: { id: hospitalId },
+    select: {
+      subscriptionStatus: true,
+      trialEndsAt: true,
+      state: true,
+      country: true,
+    },
+  });
+
+  if (!hospital) {
+    throw new Error("HOSPITAL_NOT_FOUND");
+  }
+
+  const isTamilNaduGovt =
+    hospital.state?.toLowerCase() === "tamil nadu" &&
+    hospital.country?.toLowerCase() === "india";
+
+  if (!isTamilNaduGovt && !isHospitalSubscriptionValid(hospital)) {
+    throw new Error("SUBSCRIPTION_EXPIRED");
+  }
+}
+</file>
+
 <file path="backend/middleware.ts">
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -7371,17 +6463,27 @@ export const config = {
 };
 </file>
 
-<file path="frontend/app/login/page.tsx">
+<file path="backend/postcss.config.js">
+module.exports = {
+  plugins: {
+    '@tailwindcss/postcss': {},
+    autoprefixer: {},
+  },
+}
+</file>
+
+<file path="frontend/app/login/LoginContent.tsx">
 "use client";
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link"; // Import Link for navigation
+import Link from "next/link";
 import { Navigation, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
 
-export default function LoginPage() {
+export default function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -7394,24 +6496,28 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // 1. Perform Login
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", 
-        body: JSON.stringify({ email, password }),
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, password }),
+        }
+      );
 
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Login failed");
       }
 
-      // 2. Immediately check if they have a hospital setup
-      const hospitalRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`, {
-        method: "GET",
-        credentials: "include",
-      });
+      const hospitalRes = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
 
       if (hospitalRes.ok) {
         const destination = searchParams.get("redirect") || "/dashboard";
@@ -7426,6 +6532,8 @@ export default function LoginPage() {
     }
   };
 
+  console.log("BACKEND:", process.env.NEXT_PUBLIC_BACKEND_URL);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-200">
@@ -7434,7 +6542,9 @@ export default function LoginPage() {
             <Navigation className="w-6 h-6 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Vazhikatti</h1>
-          <p className="text-slate-500 mt-1">Sign in to manage your hospital map</p>
+          <p className="text-slate-500 mt-1">
+            Sign in to manage your hospital map
+          </p>
         </div>
 
         {error && (
@@ -7446,7 +6556,9 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Email
+            </label>
             <input
               type="email"
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
@@ -7458,7 +6570,9 @@ export default function LoginPage() {
           </div>
 
           <div className="relative">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Password
+            </label>
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
@@ -7483,16 +6597,21 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all flex items-center justify-center disabled:opacity-50 active:scale-[0.98]"
           >
-            {loading ? "Verifying..." : <>Sign In <ArrowRight className="ml-2 w-4 h-4" /></>}
+            {loading ? (
+              "Verifying..."
+            ) : (
+              <>
+                Sign In <ArrowRight className="ml-2 w-4 h-4" />
+              </>
+            )}
           </button>
         </form>
 
-        {/* New User Section */}
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
           <p className="text-slate-600 text-sm">
             Don't have an account?{" "}
-            <Link 
-              href="/signup" 
+            <Link
+              href="/signup"
               className="text-indigo-600 font-semibold hover:text-indigo-500 transition-colors"
             >
               Create an account
@@ -7840,8 +6959,1204 @@ export default function SignupPage() {
 }
 </file>
 
+<file path="frontend/src/components/Layout.tsx">
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ReactNode, useEffect, useState } from "react";
+import {
+  Shield,
+  LogOut,
+  Menu,
+  X,
+  BarChart3,
+  Upload,
+  Map,
+  Navigation,
+  QrCode,
+} from "lucide-react";
+
+export default function Layout({
+  children,
+  showSidebar = true,
+}: {
+  children: ReactNode;
+  showSidebar?: boolean;
+}) {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const router = useRouter();
+
+  const handleLogout = () => {
+    localStorage.removeItem("isAuthenticated");
+    localStorage.removeItem("userEmail");
+    router.push("/login");
+  };
+
+  /* ---------------- NAVBAR ---------------- */
+  const AuthNav = () => (
+    <nav className="bg-white border-b sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+        
+        {/* Logo */}
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <Navigation className="w-8 h-8 text-indigo-600" />
+          <span className="text-lg font-semibold text-gray-900">
+            Vazhikatti
+          </span>
+        </Link>
+
+        {/* DESKTOP LINKS */}
+        <div className="hidden md:flex items-center gap-6">
+          <NavLink href="/dashboard">Dashboard</NavLink>
+          <NavLink href="/upload">Upload</NavLink>
+          <NavLink href="/editor">Editor</NavLink>
+          <NavLink href="/navigate">Navigate</NavLink>
+          <NavLink href="/qr-generator">QR</NavLink>
+        </div>
+
+        {/* Right actions */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleLogout}
+            className="hidden md:flex items-center text-sm text-red-600 hover:text-red-700"
+          >
+            <LogOut className="w-4 h-4 mr-1" />
+            Logout
+          </button>
+
+          {/* MOBILE MENU BUTTON ONLY */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
+          >
+            {isMobileMenuOpen ? <X /> : <Menu />}
+          </button>
+        </div>
+      </div>
+
+      {/* MOBILE MENU */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden border-t bg-white">
+          <nav className="p-4 space-y-2">
+            <MobileLink href="/dashboard">Dashboard</MobileLink>
+            <MobileLink href="/upload">Upload</MobileLink>
+            <MobileLink href="/editor">Editor</MobileLink>
+            <MobileLink href="/navigate">Navigate</MobileLink>
+            <MobileLink href="/qr">QR</MobileLink>
+
+            <button
+              onClick={handleLogout}
+              className="w-full text-left py-2 text-red-600"
+            >
+              Logout
+            </button>
+          </nav>
+        </div>
+      )}
+    </nav>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <AuthNav />
+      <main className="p-6">{children}</main>
+    </div>
+  );
+}
+
+/* ---------------- COMPONENTS ---------------- */
+
+function NavLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="text-sm font-medium text-gray-700 hover:text-indigo-600 transition"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function MobileLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="block py-2 text-gray-700 hover:text-indigo-600"
+    >
+      {children}
+    </Link>
+  );
+}
+</file>
+
+<file path="frontend/next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Ensure production builds don't use 'eval' source maps
+  productionBrowserSourceMaps: false,
+  
+  // If you are using specialized experimental features, 
+  // ensure they aren't conflicting with the Edge runtime
+  experimental: {
+    // serverComponentsExternalPackages: ['...'] 
+  },
+};
+
+module.exports = nextConfig;
+</file>
+
+<file path="frontend/package.json">
+{
+  "name": "hospinav-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "@tailwindcss/typography": "^0.5.10",
+    "jose": "^6.1.3",
+    "lucide-react": "^0.276.0",
+    "next": "^14.2.35",
+    "qrcode.react": "^4.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-sparklines": "^1.7.0",
+    "recharts": "^2.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.4.2",
+    "@types/react": "18.3.27",
+    "autoprefixer": "^10.4.15",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "5.9.3"
+  }
+}
+</file>
+
+<file path="PWA/app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --app-bg: #020617;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: #f8fafc;
+  overflow: hidden;
+  height: 100vh;
+  margin: 0;
+}
+
+/* SUBTLE BACKGROUND WATERMARK */
+body::before {
+  content: 'V';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 80vh;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.02);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Custom utility for the Glassmorphism panels */
+@theme {
+  --color-glass: rgba(15, 23, 42, 0.6);
+}
+
+.glass-panel {
+  background-color: var(--color-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+</file>
+
+<file path="PWA/app/page.tsx">
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX } from "lucide-react";
+
+import QRAnchorScanner from "@/components/QRAnchorScanner";
+import Compass from "@/components/Compass";
+import FloorDetector from "@/components/FloorDetector";
+import MapOverlay from "@/components/MapOverlay";
+import NavigationSteps from "@/components/NavigationSteps";
+
+export default function NavigatePage() {
+  // UI & Interaction States
+  const [showScanner, setShowScanner] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [isFloorOverridden, setIsFloorOverridden] = useState(false);
+  
+  // Navigation & Mapping States
+  const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
+  const [floorId, setFloorId] = useState<string | null>(null);
+  const [poiList, setPoiList] = useState<any[]>([]);
+  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<any>(null);
+
+  // Voice Synthesis Setup
+  const speak = useCallback((text: string) => {
+    if (isMuted || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  }, [isMuted]);
+
+  // Device Orientation for Map Rotation
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha !== null) setRotation(e.alpha);
+    };
+    window.addEventListener("deviceorientation", handleOrientation);
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
+  }, []);
+
+  // Fetch Hospital Context on Mount
+  useEffect(() => {
+    fetch("/api/hospital/active")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.id) setHospitalId(d.id);
+      })
+      .catch(err => console.error("Initial context fetch failed", err));
+  }, []);
+
+  /**
+   * Robust QR Detection Handler
+   * Handles raw UUIDs or full URLs (http://localhost:3000/api/scan/ID)
+   */
+  const handleQRDetect = async (data: any) => {
+    try {
+      const raw = typeof data === "string" ? data : data?.data || data?.url;
+      console.log("QR Raw Data:", raw);
+
+      // Extract UUID from URL if necessary
+      let qrId = raw;
+      if (raw.includes("/api/scan/")) {
+        const parts = raw.split("/api/scan/");
+        qrId = parts[parts.length - 1]; 
+      }
+      // Clean up any trailing parameters or slashes
+      qrId = qrId.split(/[?#]/)[0].replace(/\/$/, "");
+
+      const res = await fetch(`/api/scan/${qrId}`);
+      const result = await res.json();
+
+      if (res.ok) {
+        // 1. Update User Position & Floor context
+        setScannedNode({ id: result.nodeId, x: result.x, y: result.y });
+        setFloorId(String(result.floorId)); 
+        setIsFloorOverridden(true);
+        
+        // 2. Populate Map & Graph Data from single API call
+        setPoiList(result.availablePois || []);
+        setGraphData(result.graphData);
+        
+        setCurrentLocation(result.locationName);
+        setShowScanner(false);
+        speak(`Position updated. You are at ${result.locationName}`);
+      } else {
+        console.error("Scan API Error:", result.error);
+      }
+    } catch (err) {
+      console.error("Critical scan failure:", err);
+    }
+  };
+
+  return (
+    <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      {/* Auto-detect floor via sensor (if not overridden by QR) */}
+      <FloorDetector onFloor={(f) => {
+        if (!isFloorOverridden) setFloorId(f.toString());
+      }} />
+
+      {/* HEADER SECTION */}
+      <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
+        <div className="flex items-center gap-4">
+          <Compass />
+          <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-white/5 rounded-lg text-slate-400">
+            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+        </div>
+        <div className="text-center">
+          <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
+          <p className="text-[8px] text-slate-500 uppercase font-bold">{currentLocation}</p>
+        </div>
+        <button onClick={() => window.location.reload()} className="text-slate-400">
+          <RotateCcw size={18} />
+        </button>
+      </header>
+
+      {/* INTERACTIVE MAP AREA */}
+      <div className="flex-1 relative w-full overflow-hidden z-10">
+        <MapOverlay 
+          poiList={poiList} 
+          userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
+          targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
+          path={pathCoords}
+          rotation={rotation}
+        />
+
+        {/* Floating Scanner Button */}
+        {scannedNode && !showScanner && (
+          <button 
+            onClick={() => setShowScanner(true)}
+            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-95 transition-all"
+          >
+            <Camera size={20} className="text-white" />
+          </button>
+        )}
+
+        {/* Initial Scan Prompt */}
+        {!scannedNode && !showScanner && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
+            <Navigation size={48} className="text-blue-500 animate-pulse" />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="px-8 py-3 bg-blue-600 rounded-xl font-bold shadow-2xl"
+            >
+              Scan QR to Start
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* NAVIGATION & SEARCH DRAWER */}
+      {scannedNode && (
+        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          {!targetNode || isSearching ? (
+            <div className="space-y-4">
+              <div className="relative">
+                <input 
+                  autoFocus={isSearching}
+                  placeholder="Search Departments..."
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none focus:border-blue-500 transition-colors"
+                  onFocus={() => setIsSearching(true)}
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+                {isSearching && (
+                  <button onClick={() => setIsSearching(false)} className="absolute right-4 top-1/2 -translate-y-1/2">
+                    <X size={18} className="text-slate-500" />
+                  </button>
+                )}
+              </div>
+              {isSearching && (
+                <div className="max-h-48 overflow-y-auto space-y-2 mt-2 custom-scrollbar">
+                   {poiList.length > 0 ? poiList.map((poi) => (
+                      <button 
+                        key={poi.id}
+                        onClick={() => { 
+                          setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
+                          setIsSearching(false); 
+                        }} 
+                        className="w-full p-4 text-left bg-white/5 hover:bg-white/10 active:bg-blue-600/20 rounded-xl text-sm border border-white/5 transition-colors"
+                      >
+                        {poi.name}
+                      </button>
+                   )) : (
+                     <div className="p-4 text-center text-slate-500 text-xs italic">
+                        No points loaded. Try re-scanning.
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Active Navigation</span>
+                <button 
+                  onClick={() => { setTargetNode(null); setPathCoords([]); }}
+                  className="p-1 hover:bg-white/10 rounded-md"
+                >
+                  <X size={16} className="text-slate-500" />
+                </button>
+              </div>
+              <NavigationSteps 
+                hospitalId={hospitalId || ""} 
+                floorId={floorId}
+                startNodeId={scannedNode.id}
+                endNodeId={targetNode.id}
+                graphData={graphData}
+                onStepUpdate={(text) => speak(text)}
+                onPathUpdate={(coords) => setPathCoords(coords)}
+              />
+            </div>
+          )}
+        </footer>
+      )}
+
+      {/* FULLSCREEN SCANNER OVERLAY */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black">
+          <QRAnchorScanner onDetect={handleQRDetect} />
+          <button 
+            onClick={() => setShowScanner(false)} 
+            className="absolute top-10 right-6 p-4 bg-white/10 backdrop-blur-md rounded-full border border-white/20"
+          >
+            <X size={24} className="text-white" />
+          </button>
+        </div>
+      )}
+    </main>
+  );
+}
+</file>
+
+<file path="PWA/components/Compass.tsx">
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+export default function Compass() {
+  const [heading, setHeading] = useState<number | null>(null);
+  const smoothHeading = useRef<number>(0);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha == null) return;
+
+      // Normalize 0–360
+      const raw = (360 - e.alpha) % 360;
+
+      // Smooth interpolation (low-pass filter)
+      smoothHeading.current =
+        smoothHeading.current +
+        (raw - smoothHeading.current) * 0.08;
+
+      setHeading(smoothHeading.current);
+    };
+
+    window.addEventListener("deviceorientation", handleOrientation, true);
+
+    return () => {
+      window.removeEventListener("deviceorientation", handleOrientation);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Compass Dial */}
+      <div className="relative w-6 h-6 rounded-full border border-white/30 flex items-center justify-center">
+        {/* Needle */}
+        <div
+          className="absolute w-[2px] h-3 bg-red-500 rounded-full origin-bottom transition-transform duration-75 ease-linear"
+          style={{
+            transform: `rotate(${heading ?? 0}deg) translateY(-2px)`,
+          }}
+        />
+      </div>
+
+      {/* Heading number (NO degree symbol) */}
+      <span className="text-xs text-slate-300 tabular-nums">
+        {heading !== null ? Math.round(heading) : "--"}
+      </span>
+    </div>
+  );
+}
+</file>
+
+<file path="PWA/components/LiveLocation.tsx">
+"use client";
+import { useEffect, useState } from "react";
+
+export default function LiveLocation() {
+  const [pos, setPos] = useState<{lat: number, lng: number} | null>(null);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const id = navigator.geolocation.watchPosition(
+      p => setPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: true }
+    );
+
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
+  if (!pos) return <span className="text-xs text-slate-500">GPS...</span>;
+
+  return (
+    <span className="text-xs text-slate-400">
+      📍 {pos.lat.toFixed(4)}, {pos.lng.toFixed(4)}
+    </span>
+  );
+}
+</file>
+
+<file path="PWA/components/MapOverlay.tsx">
+"use client";
+
+import { useMemo, useEffect, useState } from "react";
+
+interface MapOverlayProps {
+  poiList: any[];
+  userPos: { x: number; y: number } | null;
+  targetPos?: { x: number; y: number };
+  path: { x: number; y: number }[];
+  rotation: number;
+}
+
+export default function MapOverlay({
+  poiList,
+  userPos,
+  targetPos,
+  path,
+  rotation
+}: MapOverlayProps) {
+  const [smoothUserPos, setSmoothUserPos] = useState({ x: userPos?.x || 0, y: userPos?.y || 0 });
+
+  // 1. DYNAMIC VIEWBOX CALCULATION
+  // This ensures the map scales to fit your specific hospital data
+  const viewBox = useMemo(() => {
+    if (!poiList.length) return "0 0 1000 1000";
+    
+    const padding = 100;
+    const xs = poiList.map(p => p.x);
+    const ys = poiList.map(p => p.y);
+    
+    const minX = Math.min(...xs) - padding;
+    const minY = Math.min(...ys) - padding;
+    const maxX = Math.max(...xs) + padding;
+    const maxY = Math.max(...ys) + padding;
+    
+    return `${minX} ${minY} ${maxX - minX} ${maxY - minY}`;
+  }, [poiList]);
+
+  const currentIndex = useMemo(() => {
+    if (!userPos || path.length === 0) return 0;
+    let closestIndex = 0;
+    let minDist = Infinity;
+    path.forEach((p, i) => {
+      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIndex = i;
+      }
+    });
+    return closestIndex;
+  }, [userPos, path]);
+
+  useEffect(() => {
+    if (userPos) setSmoothUserPos(userPos);
+  }, [userPos]);
+
+  const completedPath = path.slice(0, currentIndex + 1);
+  const remainingPath = path.slice(currentIndex);
+
+  return (
+    <div className="relative w-full h-full bg-[#020617] overflow-hidden flex items-center justify-center">
+      {/* GRID LAYER */}
+      <div
+        className="absolute inset-0 opacity-10"
+        style={{
+          backgroundImage: "radial-gradient(#3b82f6 0.5px, transparent 0.5px)",
+          backgroundSize: "40px 40px"
+        }}
+      />
+
+      {/* MAP ROTATION & CAMERA LAYER */}
+      <div
+        className="absolute inset-0 w-full h-full flex items-center justify-center"
+        style={{
+          transform: `rotate(${-rotation}deg)`,
+          transition: "transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)"
+        }}
+      >
+        <svg
+          viewBox={viewBox} 
+          className="w-[90%] h-[90%]"
+          preserveAspectRatio="xMidYMid meet"
+        >
+          {/* PATHS */}
+          {completedPath.length > 1 && (
+            <polyline
+              points={completedPath.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#475569"
+              strokeWidth="6"
+              strokeDasharray="12,12"
+            />
+          )}
+
+          {remainingPath.length > 1 && (
+            <>
+              <polyline
+                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="30"
+                opacity="0.1"
+                strokeLinecap="round"
+              />
+              <polyline
+                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="12"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          )}
+
+          {/* ROOM LABELS */}
+          {poiList?.map((poi) => (
+            <g key={poi.id}>
+              <circle cx={poi.x} cy={poi.y} r="8" fill="#1e293b" stroke="#3b82f6" strokeWidth="2" />
+              <text 
+                x={poi.x} 
+                y={poi.y + 25} 
+                fontSize="16" 
+                fill="#94a3b8" 
+                textAnchor="middle" 
+                className="font-bold pointer-events-none"
+                style={{ 
+                  // This keeps labels upright even when the map rotates!
+                  transform: `rotate(${rotation}deg)`, 
+                  transformOrigin: `${poi.x}px ${poi.y}px`,
+                  transition: "transform 0.4s"
+                }}
+              >
+                {poi.name}
+              </text>
+            </g>
+          ))}
+
+          {/* USER POSITION (The Blue Dot) */}
+          {userPos && (
+            <g 
+              transform={`translate(${smoothUserPos.x}, ${smoothUserPos.y})`}
+              style={{ transition: "transform 0.5s ease-out" }}
+            >
+              <circle r="40" fill="#3b82f6" className="opacity-20 animate-ping" />
+              <circle r="15" fill="#3b82f6" stroke="white" strokeWidth="4" />
+              {/* Directional Beak */}
+              <path d="M-10 -12 L0 -25 L10 -12 Z" fill="white" />
+            </g>
+          )}
+
+          {/* DESTINATION */}
+          {targetPos && (
+            <g transform={`translate(${targetPos.x}, ${targetPos.y})`}>
+              <path 
+                d="M0 0 L-15 -40 A15 15 0 1 1 15 -40 Z" 
+                fill="#ef4444" 
+                stroke="white" 
+                strokeWidth="3"
+              />
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {/* INFO PILLS */}
+      <div className="absolute bottom-4 left-4 flex gap-2 z-50">
+        <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-lg text-[10px] text-blue-400 font-bold backdrop-blur-md">
+          FLOOR {poiList[0]?.floorId?.slice(-4).toUpperCase() || '0'}
+        </div>
+        {path.length > 0 && (
+           <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[10px] text-emerald-400 font-bold backdrop-blur-md uppercase">
+            Navigation Active
+           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="PWA/package.json">
+{
+  "name": "Vazhikatti",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@yudiel/react-qr-scanner": "^2.5.0",
+    "@zxing/browser": "^0.1.5",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.294.0",
+    "next": "14.x",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.30",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "5.9.3"
+  }
+}
+</file>
+
+<file path="PWA/postcss.config.js">
+module.exports = {
+  plugins: {
+    '@tailwindcss/postcss': {},
+  },
+}
+</file>
+
+<file path="PWA/tailwind.config.js">
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  theme: {
+    extend: {
+      zIndex: {
+        'map': '0',
+        'ui': '10',
+        'modal': '50',
+      },
+      borderRadius: {
+        'xl': '1rem',
+        '2xl': '1.5rem',
+      }
+    },
+  },
+  plugins: [],
+};
+</file>
+
+<file path="backend/src/app/api/auth/login/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+
+/**
+ * CORS Helper: Applies required headers to every response.
+ * When using credentials: true, Access-Control-Allow-Origin CANNOT be "*".
+ */
+function setCorsHeaders(res: NextResponse, origin: string | null) {
+  const allowedOrigin = origin || process.env.NEXT_PUBLIC_FRONTEND_URL || "";
+  
+  res.headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  return res;
+}
+
+/* ---------------- OPTIONS (Preflight) ---------------- */
+export async function OPTIONS(req: NextRequest) {
+  const origin = req.headers.get("origin");
+  const res = new NextResponse(null, { status: 204 });
+  return setCorsHeaders(res, origin);
+}
+
+/* ---------------- POST (Login Logic) ---------------- */
+export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin");
+
+  try {
+    const { email, password } = await req.json();
+
+    if (!email || !password) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Email and password required" }, { status: 400 }),
+        origin
+      );
+    }
+
+    // 1. Find User
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.passwordHash) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid credentials" }, { status: 401 }),
+        origin
+      );
+    }
+
+    // 2. Check Password
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid credentials" }, { status: 401 }),
+        origin
+      );
+    }
+
+    // 3. Create JWT
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET!,
+      { expiresIn: "7d" }
+    );
+
+    // 4. Build Response
+    const res = NextResponse.json(
+      {
+        success: true,
+        message: "Login successful",
+        user: { 
+          id: user.id, 
+          email: user.email, 
+          planStatus: user.planStatus 
+        },
+      },
+      { status: 200 }
+    );
+
+    // 5. Set Cookie (Crucial for Cross-Domain)
+    res.cookies.set({
+      name: "auth-token",
+      value: token,
+      httpOnly: true,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+      // Must be 'none' and 'secure' for cross-site Vercel domains
+      sameSite: "none", 
+      secure: true,    
+    });
+
+    return setCorsHeaders(res, origin);
+
+  } catch (error) {
+    console.error("Login Error:", error);
+    return setCorsHeaders(
+      NextResponse.json({ error: "Internal server error" }, { status: 500 }),
+      origin
+    );
+  }
+}
+</file>
+
+<file path="backend/src/app/api/hospital/[hospitalId]/floor/[floorId]/pois/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+/* ---------- CORS ---------- */
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+/* ---------- GET POIs ---------- */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { hospitalId: string; floorId: string } }
+) {
+  const origin = req.headers.get("origin") || undefined;
+
+  try {
+    const { hospitalId, floorId } = params;
+
+    /* 1️⃣ Validate floor */
+    const floor = await prisma.floor.findFirst({
+      where: {
+        id: floorId,
+        hospitalId,
+      },
+    });
+
+    if (!floor) {
+      return NextResponse.json(
+        { error: "Floor not found" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    /* 2️⃣ Get existing Map */
+    const mapRecord = await prisma.map.findFirst({
+      where: {
+        hospitalId: floor.hospitalId,
+      },
+    });
+
+    if (!mapRecord) {
+      return NextResponse.json(
+        { error: "Map not created yet for this hospital" },
+        { status: 404, headers: cors(origin) }
+      );
+    }
+
+    /* 3️⃣ Extract POIs from graphData */
+    const points =
+      (floor.graphData as any)?.pointsOfInterest ?? [];
+
+    const enrichedPOIs: any[] = [];
+
+    for (const poi of points) {
+      if (!poi?.name || poi.x === undefined || poi.y === undefined) {
+        continue;
+      }
+
+      /* 4️⃣ Check if POI already exists */
+      let dbPoi = await prisma.poi.findFirst({
+        where: {
+          OR: [
+            poi.nodeId ? { nodeId: poi.nodeId } : undefined,
+            {
+              mapId: mapRecord.id,
+              name: poi.name,
+            },
+          ].filter(Boolean) as any,
+        },
+      });
+
+      /* 5️⃣ Create POI if missing */
+      if (!dbPoi) {
+        const safeNodeId =
+          poi.nodeId && poi.nodeId.trim() !== ""
+            ? poi.nodeId
+            : crypto.randomUUID();
+
+        try {
+          dbPoi = await prisma.poi.create({
+            data: {
+              name: poi.name,
+              type: poi.type || "general",
+              x: Number(poi.x),
+              y: Number(poi.y),
+              mapId: mapRecord.id,
+              floorId: floorId,
+              qrId: crypto.randomUUID(),
+              nodeId: safeNodeId,
+            },
+          });
+        } catch (e: any) {
+          // Handle unique constraint on nodeId
+          if (e.code === "P2002" && safeNodeId) {
+            dbPoi = await prisma.poi.findUnique({
+              where: { nodeId: safeNodeId },
+            });
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      if (!dbPoi) continue;
+
+      enrichedPOIs.push({
+        ...poi,
+        dbId: dbPoi.id,
+        qrId: dbPoi.qrId,
+        nodeId: dbPoi.nodeId,
+      });
+    }
+
+    return NextResponse.json(enrichedPOIs, {
+      headers: cors(origin),
+    });
+  } catch (error: any) {
+    console.error("POI API ERROR:", error);
+
+    return NextResponse.json(
+      {
+        error: "Internal Server Error",
+        details: error.message,
+      },
+      { status: 500, headers: cors(origin) }
+    );
+  }
+}
+
+/* ---------- OPTIONS ---------- */
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+</file>
+
+<file path="backend/src/app/api/hospital/floor/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import crypto from "crypto";
+
+const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
+
+// Helper to handle CORS
+function cors(res: NextResponse) {
+  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  return res;
+}
+
+// OPTIONS handler for CORS preflight
+export async function OPTIONS() {
+  return cors(new NextResponse(null, { status: 204 }));
+}
+
+/** * GET: Fetch floors for a specific hospital
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const token = req.cookies.get("auth-token")?.value;
+    if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
+
+    const { searchParams } = new URL(req.url);
+    const hospitalId = searchParams.get("hospitalId");
+
+    if (!hospitalId) {
+      return cors(NextResponse.json({ error: "hospitalId is required" }, { status: 400 }));
+    }
+
+    const floors = await prisma.floor.findMany({
+      where: { hospitalId: hospitalId },
+      orderBy: { level: 'asc' }
+    });
+
+    return cors(NextResponse.json(floors, { status: 200 }));
+  } catch (error: any) {
+    console.error("GET Floor Error:", error);
+    return cors(NextResponse.json({ error: error.message }, { status: 500 }));
+  }
+}
+
+/**
+ * POST: Save or Update Floor and Sync POIs
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const token = req.cookies.get("auth-token")?.value;
+    if (!token) return cors(NextResponse.json({ error: "Unauthorized" }, { status: 401 }));
+
+    const body = await req.json();
+    const { hospitalId, name, graphData, mapId, level } = body;
+
+    // 1. FIND VALID MAP ID
+    // Your DB requires POIs to link to a 'Map' record, not just the 'Hospital' ID.
+    const hospitalMap = await prisma.map.findFirst({
+      where: { hospitalId: hospitalId }
+    });
+
+    if (!hospitalMap) {
+      return cors(NextResponse.json({ 
+        error: "No Map record found for this hospital. Please create a map in the dashboard first." 
+      }, { status: 400 }));
+    }
+
+    let floor;
+    const isPlaceholder = !mapId || mapId === 'new-uuid-placeholder' || mapId === 'undefined';
+    
+    // 2. SAVE OR UPDATE FLOOR (Using upsert to prevent P2025 errors)
+    if (isPlaceholder) {
+      floor = await prisma.floor.create({
+        data: { 
+          name: name || "New Floor", 
+          hospitalId, 
+          graphData: graphData || {}, 
+          level: Number(level || 1) 
+        },
+      });
+    } else {
+      floor = await prisma.floor.upsert({
+        where: { id: mapId },
+        update: { 
+          graphData: graphData || {}, 
+          name: name || "Updated Floor", 
+          level: Number(level) || 0 
+        },
+        create: {
+          id: mapId,
+          name: name || "New Floor",
+          hospitalId,
+          graphData: graphData || {},
+          level: Number(level) || 0
+        }
+      });
+    }
+
+    // 3. ATOMIC SYNC: POI Table <=> Graph JSON
+    if (graphData && graphData.pointsOfInterest && Array.isArray(graphData.pointsOfInterest)) {
+      const currentNodesInGraph = graphData.pointsOfInterest.map((p: any) => p.nodeId);
+
+      // Delete POIs removed from the editor
+      await prisma.poi.deleteMany({
+        where: { 
+          floorId: floor.id, 
+          nodeId: { notIn: currentNodesInGraph } 
+        }
+      });
+
+      // Upsert current POIs
+      await Promise.all(graphData.pointsOfInterest.map((poiNode: any) => {
+        return prisma.poi.upsert({
+          where: { nodeId: poiNode.nodeId },
+          update: {
+            name: poiNode.name,
+            x: poiNode.x,
+            y: poiNode.y,
+            type: poiNode.type || "general",
+            floorId: floor.id,
+          },
+          create: {
+            nodeId: poiNode.nodeId,
+            name: poiNode.name,
+            qrId: poiNode.qrId || crypto.randomUUID(),
+            x: poiNode.x,
+            y: poiNode.y,
+            type: poiNode.type || "general",
+            floorId: floor.id,
+            mapId: hospitalMap.id // Using the valid Map ID found in Step 1
+          }
+        });
+      }));
+    }
+
+    return cors(NextResponse.json(floor, { status: 201 }));
+  } catch (error: any) {
+    console.error("Floor Sync Error:", error);
+    return cors(NextResponse.json({ error: error.message }, { status: 500 }));
+  }
+}
+</file>
+
 <file path="frontend/app/upload/page.tsx">
 "use client";
+
+export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
@@ -8092,237 +8407,6 @@ export default function Upload() {
 }
 </file>
 
-<file path="frontend/src/components/Layout.tsx">
-"use client";
-
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
-import {
-  Shield,
-  LogOut,
-  Menu,
-  X,
-  BarChart3,
-  Upload,
-  Map,
-  Navigation,
-  QrCode,
-} from "lucide-react";
-
-export default function Layout({
-  children,
-  showSidebar = true,
-}: {
-  children: ReactNode;
-  showSidebar?: boolean;
-}) {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const router = useRouter();
-
-  const handleLogout = () => {
-    localStorage.removeItem("isAuthenticated");
-    localStorage.removeItem("userEmail");
-    router.push("/login");
-  };
-
-  /* ---------------- NAVBAR ---------------- */
-  const AuthNav = () => (
-    <nav className="bg-white border-b sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-        
-        {/* Logo */}
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <Navigation className="w-8 h-8 text-indigo-600" />
-          <span className="text-lg font-semibold text-gray-900">
-            Vazhikatti
-          </span>
-        </Link>
-
-        {/* DESKTOP LINKS */}
-        <div className="hidden md:flex items-center gap-6">
-          <NavLink href="/dashboard">Dashboard</NavLink>
-          <NavLink href="/upload">Upload</NavLink>
-          <NavLink href="/editor">Editor</NavLink>
-          <NavLink href="/navigate">Navigate</NavLink>
-          <NavLink href="/qr-generator">QR</NavLink>
-        </div>
-
-        {/* Right actions */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleLogout}
-            className="hidden md:flex items-center text-sm text-red-600 hover:text-red-700"
-          >
-            <LogOut className="w-4 h-4 mr-1" />
-            Logout
-          </button>
-
-          {/* MOBILE MENU BUTTON ONLY */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
-          >
-            {isMobileMenuOpen ? <X /> : <Menu />}
-          </button>
-        </div>
-      </div>
-
-      {/* MOBILE MENU */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden border-t bg-white">
-          <nav className="p-4 space-y-2">
-            <MobileLink href="/dashboard">Dashboard</MobileLink>
-            <MobileLink href="/upload">Upload</MobileLink>
-            <MobileLink href="/editor">Editor</MobileLink>
-            <MobileLink href="/navigate">Navigate</MobileLink>
-            <MobileLink href="/qr">QR</MobileLink>
-
-            <button
-              onClick={handleLogout}
-              className="w-full text-left py-2 text-red-600"
-            >
-              Logout
-            </button>
-          </nav>
-        </div>
-      )}
-    </nav>
-  );
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <AuthNav />
-      <main className="p-6">{children}</main>
-    </div>
-  );
-}
-
-/* ---------------- COMPONENTS ---------------- */
-
-function NavLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="text-sm font-medium text-gray-700 hover:text-indigo-600 transition"
-    >
-      {children}
-    </Link>
-  );
-}
-
-function MobileLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="block py-2 text-gray-700 hover:text-indigo-600"
-    >
-      {children}
-    </Link>
-  );
-}
-</file>
-
-<file path="frontend/package.json">
-{
-  "name": "hospinav-frontend",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "@tailwindcss/typography": "^0.5.10",
-    "jose": "^6.1.3",
-    "lucide-react": "^0.276.0",
-    "next": "^14.2.35",
-    "qrcode.react": "^4.2.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-hot-toast": "^2.6.0",
-    "react-sparklines": "^1.7.0",
-    "recharts": "^2.7.2"
-  },
-  "devDependencies": {
-    "@types/node": "^20.4.2",
-    "@types/react": "18.3.27",
-    "autoprefixer": "^10.4.15",
-    "postcss": "^8.4.27",
-    "tailwindcss": "^3.3.3",
-    "typescript": "5.9.3"
-  }
-}
-</file>
-
-<file path="PWA/components/Compass.tsx">
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-
-export default function Compass() {
-  const [heading, setHeading] = useState<number | null>(null);
-  const smoothHeading = useRef<number>(0);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.alpha == null) return;
-
-      // Normalize 0–360
-      const raw = (360 - e.alpha) % 360;
-
-      // Smooth interpolation (low-pass filter)
-      smoothHeading.current =
-        smoothHeading.current +
-        (raw - smoothHeading.current) * 0.08;
-
-      setHeading(smoothHeading.current);
-    };
-
-    window.addEventListener("deviceorientation", handleOrientation, true);
-
-    return () => {
-      window.removeEventListener("deviceorientation", handleOrientation);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  return (
-    <div className="flex items-center gap-2">
-      {/* Compass Dial */}
-      <div className="relative w-6 h-6 rounded-full border border-white/30 flex items-center justify-center">
-        {/* Needle */}
-        <div
-          className="absolute w-[2px] h-3 bg-red-500 rounded-full origin-bottom transition-transform duration-75 ease-linear"
-          style={{
-            transform: `rotate(${heading ?? 0}deg) translateY(-2px)`,
-          }}
-        />
-      </div>
-
-      {/* Heading number (NO degree symbol) */}
-      <span className="text-xs text-slate-300 tabular-nums">
-        {heading !== null ? Math.round(heading) : "--"}
-      </span>
-    </div>
-  );
-}
-</file>
-
 <file path="PWA/components/FloorDetector.tsx">
 "use client";
 
@@ -8535,309 +8619,6 @@ export default function QRAnchorScanner({ onDetect }: Props) {
 }
 </file>
 
-<file path="PWA/package.json">
-{
-  "name": "Vazhikatti",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "@tailwindcss/postcss": "^4.1.18",
-    "@yudiel/react-qr-scanner": "^2.5.0",
-    "@zxing/browser": "^0.1.5",
-    "jsqr": "^1.4.0",
-    "lucide-react": "^0.294.0",
-    "next": "14.x",
-    "react": "^18",
-    "react-dom": "^18"
-  },
-  "devDependencies": {
-    "@types/node": "20.19.30",
-    "@types/react": "18.3.27",
-    "@types/react-dom": "^18",
-    "autoprefixer": "^10.4.23",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.18",
-    "typescript": "5.9.3"
-  }
-}
-</file>
-
-<file path="backend/src/app/api/hospital/[hospitalId]/floor/[floorId]/pois/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-
-/* ---------- CORS ---------- */
-function cors(origin?: string) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Credentials": "true",
-  };
-}
-
-/* ---------- GET POIs ---------- */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { hospitalId: string; floorId: string } }
-) {
-  const origin = req.headers.get("origin") || undefined;
-
-  try {
-    const { hospitalId, floorId } = params;
-
-    /* 1️⃣ Validate floor */
-    const floor = await prisma.floor.findFirst({
-      where: {
-        id: floorId,
-        hospitalId,
-      },
-    });
-
-    if (!floor) {
-      return NextResponse.json(
-        { error: "Floor not found" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    /* 2️⃣ Get existing Map */
-    const mapRecord = await prisma.map.findFirst({
-      where: {
-        hospitalId: floor.hospitalId,
-      },
-    });
-
-    if (!mapRecord) {
-      return NextResponse.json(
-        { error: "Map not created yet for this hospital" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    /* 3️⃣ Extract POIs from graphData */
-    const points =
-      (floor.graphData as any)?.pointsOfInterest ?? [];
-
-    const enrichedPOIs: any[] = [];
-
-    for (const poi of points) {
-      if (!poi?.name || poi.x === undefined || poi.y === undefined) {
-        continue;
-      }
-
-      /* 4️⃣ Check if POI already exists */
-      let dbPoi = await prisma.poi.findFirst({
-        where: {
-          OR: [
-            poi.nodeId ? { nodeId: poi.nodeId } : undefined,
-            {
-              mapId: mapRecord.id,
-              name: poi.name,
-            },
-          ].filter(Boolean) as any,
-        },
-      });
-
-      /* 5️⃣ Create POI if missing */
-      if (!dbPoi) {
-        const safeNodeId =
-          poi.nodeId && poi.nodeId.trim() !== ""
-            ? poi.nodeId
-            : crypto.randomUUID();
-
-        try {
-          dbPoi = await prisma.poi.create({
-            data: {
-              name: poi.name,
-              type: poi.type || "general",
-              x: Number(poi.x),
-              y: Number(poi.y),
-              mapId: mapRecord.id,
-              floorId: floorId,
-              qrId: crypto.randomUUID(),
-              nodeId: safeNodeId,
-            },
-          });
-        } catch (e: any) {
-          // Handle unique constraint on nodeId
-          if (e.code === "P2002" && safeNodeId) {
-            dbPoi = await prisma.poi.findUnique({
-              where: { nodeId: safeNodeId },
-            });
-          } else {
-            throw e;
-          }
-        }
-      }
-
-      if (!dbPoi) continue;
-
-      enrichedPOIs.push({
-        ...poi,
-        dbId: dbPoi.id,
-        qrId: dbPoi.qrId,
-        nodeId: dbPoi.nodeId,
-      });
-    }
-
-    return NextResponse.json(enrichedPOIs, {
-      headers: cors(origin),
-    });
-  } catch (error: any) {
-    console.error("POI API ERROR:", error);
-
-    return NextResponse.json(
-      {
-        error: "Internal Server Error",
-        details: error.message,
-      },
-      { status: 500, headers: cors(origin) }
-    );
-  }
-}
-
-/* ---------- OPTIONS ---------- */
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, {
-    status: 204,
-    headers: cors(req.headers.get("origin") || undefined),
-  });
-}
-</file>
-
-<file path="backend/src/app/api/scan/[qrId]/route.ts">
-import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/db";
-
-/* ---------- CORS ---------- */
-function cors(origin?: string) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-}
-
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, {
-    status: 204,
-    headers: cors(req.headers.get("origin") || undefined),
-  });
-}
-
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { qrId: string } }
-) {
-  try {
-    const origin = req.headers.get("origin") || undefined;
-    const { qrId } = params;
-
-    if (!qrId) {
-      return NextResponse.json(
-        { error: "QR ID missing" },
-        { status: 400, headers: cors(origin) }
-      );
-    }
-
-    const poi = await prisma.poi.findUnique({
-      where: { qrId },
-      include: {
-        map: {
-          select: { hospitalId: true },
-        },
-        floor: {
-          select: {
-            id: true,
-            level: true,
-          },
-        },
-      },
-    });
-
-    if (!poi) {
-      return NextResponse.json(
-        { error: "Location QR not recognized" },
-        { status: 404, headers: cors(origin) }
-      );
-    }
-
-    /* ✅ CRITICAL FIX: include x & y */
-    return NextResponse.json(
-      {
-        nodeId: poi.nodeId,
-        locationName: poi.name,
-        floorId: poi.floor?.id || null,
-        floorLevel: poi.floor?.level || null,
-        hospitalId: poi.map?.hospitalId,
-
-        // ✅ ADD THESE
-        x: Number(poi.x) || 0,
-        y: Number(poi.y) || 0,
-      },
-      { status: 200, headers: cors(origin) }
-    );
-  } catch (err) {
-    console.error("Scan API Error:", err);
-
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    );
-  }
-}
-</file>
-
-<file path="backend/package.json">
-{
-  "name": "hospinav-backend",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
-    "start": "next start",
-    "lint": "next lint",
-    "postinstall": "prisma generate",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio"
-  },
-  "dependencies": {
-    "@prisma/client": "5.22.0",
-    "@supabase/supabase-js": "^2.39.0",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.3",
-    "next": "14.2.3",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "stripe": "^14.0.0",
-    "uuid": "^13.0.0",
-    "zod": "^3.22.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/react": "18.3.27",
-    "@types/react-dom": "18.2.0",
-    "@types/uuid": "^10.0.0",
-    "eslint": "^8.0.0",
-    "eslint-config-next": "14.2.3",
-    "prisma": "5.22.0",
-    "typescript": "5.9.3"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  }
-}
-</file>
-
 <file path="PWA/next.config.mjs">
 /** @type {import('next').NextConfig} */
 
@@ -8870,6 +8651,93 @@ const nextConfig = {
 };
 
 export default nextConfig;
+</file>
+
+<file path="backend/src/app/api/scan/[qrId]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+
+export async function GET(req: NextRequest, { params }: { params: { qrId: string } }) {
+  try {
+    const origin = req.headers.get("origin") || undefined;
+    const { qrId } = params;
+
+    if (!qrId) {
+      return NextResponse.json({ error: "QR ID missing" }, { status: 400, headers: cors(origin) });
+    }
+
+    const poi = await prisma.poi.findUnique({
+      where: { qrId },
+      include: {
+        map: { select: { hospitalId: true } },
+        floor: { select: { id: true, level: true, graphData: true } },
+      },
+    });
+
+    if (!poi) {
+      return NextResponse.json({ error: "Location QR not recognized" }, { status: 404, headers: cors(origin) });
+    }
+
+    // Fetch all POIs on this floor to populate the map
+    const siblingPois = await prisma.poi.findMany({
+      where: { floorId: poi.floorId },
+    });
+
+    return NextResponse.json(
+      {
+        nodeId: poi.nodeId,
+        locationName: poi.name,
+        floorId: String(poi.floorId), // Force string for frontend consistency[cite: 1]
+        floorLevel: poi.floor?.level || null,
+        hospitalId: poi.map?.hospitalId,
+        x: Number(poi.x) || 0,
+        y: Number(poi.y) || 0,
+        graphData: poi.floor?.graphData || null,
+        availablePois: siblingPois.map(p => ({
+          id: p.id,
+          name: p.name,
+          nodeId: p.nodeId,
+          x: Number(p.x),
+          y: Number(p.y),
+          type: p.type,
+          floorId: String(p.floorId) // Force string here too[cite: 1]
+        })),
+      },
+      { status: 200, headers: cors(origin) }
+    );
+  } catch (err) {
+    console.error("Scan API Error:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+</file>
+
+<file path="frontend/app/login/page.tsx">
+import { Suspense } from "react";
+import LoginContent from "./LoginContent";
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-center">Loading...</div>}>
+      <LoginContent />
+    </Suspense>
+  );
+}
 </file>
 
 <file path="PWA/repomix-output.xml">
@@ -10478,6 +10346,53 @@ module.exports = {
 </files>
 </file>
 
+<file path="backend/package.json">
+{
+  "name": "hospinav-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "@tailwindcss/postcss": "^4.2.2",
+    "autoprefixer": "^10.4.27",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.3",
+    "next": "14.2.3",
+    "postcss": "^8.5.8",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "stripe": "^14.0.0",
+    "tailwindcss": "^4.2.2",
+    "uuid": "^13.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.2.0",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "14.2.3",
+    "prisma": "5.22.0",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+</file>
+
 <file path="frontend/app/editor/page.tsx">
 "use client";
 
@@ -10919,167 +10834,43 @@ function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: 
 }
 </file>
 
-<file path="backend/prisma/schema.prisma">
-generator client {
-  provider = "prisma-client-js"
+<file path="frontend/middleware.ts">
+import { NextRequest, NextResponse } from "next/server";
+
+const PUBLIC_PATHS = ["/login", "/signup", "/pricing", "/"];
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // 1. Skip middleware for static assets and internal Next.js tasks
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api") ||
+    pathname.includes(".") // Catch-all for favicon, images, etc.
+  ) {
+    return NextResponse.next();
+  }
+
+  // 2. Public Path Check
+  if (PUBLIC_PATHS.some((path) => pathname === path)) {
+    return NextResponse.next();
+  }
+
+  // 3. Auth Check
+  const token = req.cookies.get("auth-token")?.value;
+
+  if (!token) {
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model User {
-  id               String      @id @default(uuid())
-  email            String      @unique
-  passwordHash     String
-  name             String?
-  planStatus       PlanStatus  @default(FREE)
-  creditsRemaining Int         @default(10)
-
-  hospitals    Hospital[]
-  subscription Subscription?
-
-  analyticsEvents AnalyticsEvent[]
-
-  stripeCustomerId String? 
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Subscription {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  status               String
-  stripeSubscriptionId String?  @unique
-  stripePriceId        String?
-  currentPeriodEnd     DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Hospital {
-  id                 String             @id @default(cuid())
-  name               String
-  address            String
-  country            String
-  state              String?
-  region             Region
-  subscriptionStatus SubscriptionStatus
-
-  trialEndsAt        DateTime?
-  paymentProvider    PaymentProvider?
-
-  createdByUser String
-  user          User   @relation(fields: [createdByUser], references: [id])
-
-  analyticsEvents AnalyticsEvent[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  floors Floor[]
-  maps   Map[]      // Added relation to Map
-}
-
-model AnalyticsEvent {
-  id        String   @id @default(uuid())
-  eventType String
-  metadata  Json?
-  createdAt DateTime @default(now())
-
-  userId     String?
-  user       User?     @relation(fields: [userId], references: [id])
-
-  hospitalId String?
-  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
-
-  @@index([userId])
-  @@index([hospitalId])
-}
-
-model Floor {
-  id         String    @id @default(cuid())
-  name       String
-  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
-  hospitalId String
-  image      String? @db.LongText
-  level      Int?
-  graphData  Json
-  pois       Poi[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-}
-
-model Map {
-  id        String   @id @default(cuid())
-  name      String
-  imageUrl  String
-  hospital  Hospital @relation(fields: [hospitalId], references: [id])
-  hospitalId String
-
-  pois   Poi[]
-  routes Route[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Poi {
-  id        String   @id @default(cuid())
-  name      String
-  qrId      String   @unique 
-  type      String
-  x         Float
-  y         Float
-  map       Map      @relation(fields: [mapId], references: [id])
-  mapId     String
-  nodeId    String   @unique
-  floor     Floor    @relation(fields: [floorId], references: [id])
-  floorId   String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([floorId])
-}
-
-model Route {
-  id       String   @id @default(cuid())
-  fromId   String
-  toId     String
-  distance Float
-  map      Map      @relation(fields: [mapId], references: [id])
-  mapId    String
-}
-
-enum Region {
-  TAMIL_NADU
-  INDIA_OTHER
-  INTERNATIONAL
-}
-
-enum SubscriptionStatus {
-  FREE
-  TRIAL
-  ACTIVE
-  EXPIRED
-}
-
-enum PlanStatus {
-  FREE
-  PRO
-  ENTERPRISE
-}
-
-enum PaymentProvider {
-  RAZORPAY
-  STRIPE
-}
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+};
 </file>
 
 <file path="PWA/components/NavigationSteps.tsx">
@@ -11228,6 +11019,169 @@ export default function NavigationSteps({
       ))}
     </div>
   );
+}
+</file>
+
+<file path="backend/prisma/schema.prisma">
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  name             String?
+  planStatus       PlanStatus  @default(FREE)
+  creditsRemaining Int         @default(10)
+
+  hospitals    Hospital[]
+  subscription Subscription?
+
+  analyticsEvents AnalyticsEvent[]
+
+  stripeCustomerId String? 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status               String
+  stripeSubscriptionId String?  @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Hospital {
+  id                 String             @id @default(cuid())
+  name               String
+  address            String
+  country            String
+  state              String?
+  region             Region
+  subscriptionStatus SubscriptionStatus
+
+  trialEndsAt        DateTime?
+  paymentProvider    PaymentProvider?
+
+  createdByUser String
+  user          User   @relation(fields: [createdByUser], references: [id])
+
+  analyticsEvents AnalyticsEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  floors Floor[]
+  maps   Map[]      // Added relation to Map
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  eventType String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+
+  hospitalId String?
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
+
+  @@index([userId])
+  @@index([hospitalId])
+}
+
+model Floor {
+  id         String    @id @default(cuid())
+  name       String
+  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+  image      String?
+  level      Int?
+  graphData  Json
+  pois       Poi[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Map {
+  id        String   @id @default(cuid())
+  name      String
+  imageUrl  String
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  hospitalId String
+
+  pois   Poi[]
+  routes Route[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Poi {
+  id        String   @id @default(cuid())
+  name      String
+  qrId      String   @unique 
+  type      String
+  x         Float
+  y         Float
+  map       Map      @relation(fields: [mapId], references: [id])
+  mapId     String
+  nodeId    String   @unique
+  floor     Floor    @relation(fields: [floorId], references: [id])
+  floorId   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([floorId])
+}
+
+model Route {
+  id       String   @id @default(cuid())
+  fromId   String
+  toId     String
+  distance Float
+  map      Map      @relation(fields: [mapId], references: [id])
+  mapId    String
+}
+
+enum Region {
+  TAMIL_NADU
+  INDIA_OTHER
+  INTERNATIONAL
+}
+
+enum SubscriptionStatus {
+  FREE
+  TRIAL
+  ACTIVE
+  EXPIRED
+}
+
+enum PlanStatus {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
 }
 </file>
 
@@ -11386,20 +11340,24 @@ import MapOverlay from "@/components/MapOverlay";
 import NavigationSteps from "@/components/NavigationSteps";
 
 export default function NavigatePage() {
+  // UI & Interaction States
   const [showScanner, setShowScanner] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [rotation, setRotation] = useState(0);
+  const [isFloorOverridden, setIsFloorOverridden] = useState(false);
   
-  // State for Navigation and Mapping
+  // Navigation & Mapping States
   const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
   const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
   const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
-  const [floorId, setFloorId] = useState<string>("0");
+  const [floorId, setFloorId] = useState<string | null>(null);
   const [poiList, setPoiList] = useState<any[]>([]);
   const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
   const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<any>(null);
 
+  // Voice Synthesis Setup
   const speak = useCallback((text: string) => {
     if (isMuted || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
@@ -11407,7 +11365,7 @@ export default function NavigatePage() {
     window.speechSynthesis.speak(utterance);
   }, [isMuted]);
 
-  // Handle Device Orientation for the Map Arrow
+  // Device Orientation for Map Rotation
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null) setRotation(e.alpha);
@@ -11416,53 +11374,66 @@ export default function NavigatePage() {
     return () => window.removeEventListener("deviceorientation", handleOrientation);
   }, []);
 
-  // Fetch Active Hospital and POIs
+  // Fetch Hospital Context on Mount
   useEffect(() => {
     fetch("/api/hospital/active")
       .then((r) => r.json())
       .then((d) => {
-        if (d?.id) {
-          setHospitalId(d.id);
-          return fetch(`/api/hospital/${d.id}/locations`);
-        }
+        if (d?.id) setHospitalId(d.id);
       })
-      .then((r) => r?.json())
-      .then((d) => {
-        if (d?.locations) {
-          const pois = d.locations.flatMap((loc: any) => 
-            loc.pois.map((p: any) => ({ ...p, floorId: String(loc.floorId) }))
-          );
-          setPoiList(pois);
-        }
-      });
+      .catch(err => console.error("Initial context fetch failed", err));
   }, []);
 
+  /**
+   * Robust QR Detection Handler
+   * Handles raw UUIDs or full URLs (http://localhost:3000/api/scan/ID)
+   */
   const handleQRDetect = async (data: any) => {
     try {
       const raw = typeof data === "string" ? data : data?.data || data?.url;
-      const qrId = raw.includes("/api/scan/") ? raw.split("/api/scan/")[1] : raw;
-      
+      console.log("QR Raw Data:", raw);
+
+      // Extract UUID from URL if necessary
+      let qrId = raw;
+      if (raw.includes("/api/scan/")) {
+        const parts = raw.split("/api/scan/");
+        qrId = parts[parts.length - 1]; 
+      }
+      // Clean up any trailing parameters or slashes
+      qrId = qrId.split(/[?#]/)[0].replace(/\/$/, "");
+
       const res = await fetch(`/api/scan/${qrId}`);
       const result = await res.json();
 
       if (res.ok) {
-        // Capture specific coordinates for the map
+        // 1. Update User Position & Floor context
         setScannedNode({ id: result.nodeId, x: result.x, y: result.y });
-        setFloorId(String(result.floorId ?? "0"));
+        setFloorId(String(result.floorId)); 
+        setIsFloorOverridden(true);
+        
+        // 2. Populate Map & Graph Data from single API call
+        setPoiList(result.availablePois || []);
+        setGraphData(result.graphData);
+        
         setCurrentLocation(result.locationName);
         setShowScanner(false);
         speak(`Position updated. You are at ${result.locationName}`);
+      } else {
+        console.error("Scan API Error:", result.error);
       }
     } catch (err) {
-      console.error("Scan failed");
+      console.error("Critical scan failure:", err);
     }
   };
 
   return (
     <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
-      <FloorDetector onFloor={(f) => setFloorId(f.toString())} />
+      {/* Auto-detect floor via sensor (if not overridden by QR) */}
+      <FloorDetector onFloor={(f) => {
+        if (!isFloorOverridden) setFloorId(f.toString());
+      }} />
 
-      {/* HEADER */}
+      {/* HEADER SECTION */}
       <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
         <div className="flex items-center gap-4">
           <Compass />
@@ -11474,34 +11445,38 @@ export default function NavigatePage() {
           <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
           <p className="text-[8px] text-slate-500 uppercase font-bold">{currentLocation}</p>
         </div>
-        <button onClick={() => window.location.reload()} className="text-slate-400"><RotateCcw size={18} /></button>
+        <button onClick={() => window.location.reload()} className="text-slate-400">
+          <RotateCcw size={18} />
+        </button>
       </header>
 
-      {/* MAP AREA */}
+      {/* INTERACTIVE MAP AREA */}
       <div className="flex-1 relative w-full overflow-hidden z-10">
         <MapOverlay 
-          poiList={poiList.filter(p => p.floorId === floorId)}
+          poiList={poiList} 
           userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
           targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
           path={pathCoords}
           rotation={rotation}
         />
 
+        {/* Floating Scanner Button */}
         {scannedNode && !showScanner && (
           <button 
             onClick={() => setShowScanner(true)}
-            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-90 transition-all"
+            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-95 transition-all"
           >
             <Camera size={20} className="text-white" />
           </button>
         )}
 
+        {/* Initial Scan Prompt */}
         {!scannedNode && !showScanner && (
           <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
             <Navigation size={48} className="text-blue-500 animate-pulse" />
             <button 
               onClick={() => setShowScanner(true)}
-              className="px-8 py-3 bg-blue-600 rounded-xl font-bold"
+              className="px-8 py-3 bg-blue-600 rounded-xl font-bold shadow-2xl"
             >
               Scan QR to Start
             </button>
@@ -11509,34 +11484,43 @@ export default function NavigatePage() {
         )}
       </div>
 
-      {/* NAVIGATION FOOTER */}
+      {/* NAVIGATION & SEARCH DRAWER */}
       {scannedNode && (
-        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem]">
+        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
           {!targetNode || isSearching ? (
             <div className="space-y-4">
               <div className="relative">
                 <input 
                   autoFocus={isSearching}
-                  placeholder="Where are you going?"
-                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none"
+                  placeholder="Search Departments..."
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none focus:border-blue-500 transition-colors"
                   onFocus={() => setIsSearching(true)}
                 />
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+                {isSearching && (
+                  <button onClick={() => setIsSearching(false)} className="absolute right-4 top-1/2 -translate-y-1/2">
+                    <X size={18} className="text-slate-500" />
+                  </button>
+                )}
               </div>
               {isSearching && (
-                <div className="max-h-40 overflow-y-auto space-y-2">
-                   {poiList.filter(p => p.floorId === floorId).map((poi) => (
+                <div className="max-h-48 overflow-y-auto space-y-2 mt-2 custom-scrollbar">
+                   {poiList.length > 0 ? poiList.map((poi) => (
                       <button 
                         key={poi.id}
                         onClick={() => { 
                           setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
                           setIsSearching(false); 
                         }} 
-                        className="w-full p-3 text-left bg-white/10 rounded-lg text-sm"
+                        className="w-full p-4 text-left bg-white/5 hover:bg-white/10 active:bg-blue-600/20 rounded-xl text-sm border border-white/5 transition-colors"
                       >
                         {poi.name}
                       </button>
-                   ))}
+                   )) : (
+                     <div className="p-4 text-center text-slate-500 text-xs italic">
+                        No points loaded. Try re-scanning.
+                     </div>
+                   )}
                 </div>
               )}
             </div>
@@ -11544,13 +11528,19 @@ export default function NavigatePage() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Active Navigation</span>
-                <button onClick={() => { setTargetNode(null); setPathCoords([]); }}><X size={16} className="text-slate-500" /></button>
+                <button 
+                  onClick={() => { setTargetNode(null); setPathCoords([]); }}
+                  className="p-1 hover:bg-white/10 rounded-md"
+                >
+                  <X size={16} className="text-slate-500" />
+                </button>
               </div>
               <NavigationSteps 
                 hospitalId={hospitalId || ""} 
                 floorId={floorId}
                 startNodeId={scannedNode.id}
                 endNodeId={targetNode.id}
+                graphData={graphData}
                 onStepUpdate={(text) => speak(text)}
                 onPathUpdate={(coords) => setPathCoords(coords)}
               />
@@ -11559,10 +11549,16 @@ export default function NavigatePage() {
         </footer>
       )}
 
+      {/* FULLSCREEN SCANNER OVERLAY */}
       {showScanner && (
         <div className="fixed inset-0 z-50 bg-black">
           <QRAnchorScanner onDetect={handleQRDetect} />
-          <button onClick={() => setShowScanner(false)} className="absolute top-10 right-6 p-3 bg-white/10 rounded-full"><X size={24} /></button>
+          <button 
+            onClick={() => setShowScanner(false)} 
+            className="absolute top-10 right-6 p-4 bg-white/10 backdrop-blur-md rounded-full border border-white/20"
+          >
+            <X size={24} className="text-white" />
+          </button>
         </div>
       )}
     </main>

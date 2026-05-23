@@ -13,7 +13,7 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "5.22.0",
+    "@prisma/client": "^6.15.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tailwindcss/postcss": "^4.2.2",
     "autoprefixer": "^10.4.27",
@@ -35,7 +35,7 @@
     "@types/uuid": "^10.0.0",
     "eslint": "^8.0.0",
     "eslint-config-next": "14.2.3",
-    "prisma": "5.22.0",
+    "prisma": "^6.15.0",
     "typescript": "5.9.3"
   },
   "engines": {

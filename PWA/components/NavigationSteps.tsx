@@ -10,6 +10,7 @@ interface Props {
   endNodeId: string;
   floorId: string;
   hospitalId: string;
+  graphData: any;
   lang?: "en" | "ta";
   onStepUpdate: (text: string) => void;
   onPathUpdate: (coords: { x: number; y: number }[]) => void;

@@ -705,28 +705,6 @@ export function GET() {
 }
 </file>
 
-<file path="backend/src/app/api/hospital/active/route.ts">
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-
-export async function GET() {
-  try {
-    // Find the first hospital in the DB
-    const hospital = await prisma.hospital.findFirst({
-      select: { id: true, name: true }
-    });
-
-    if (!hospital) {
-      return NextResponse.json({ error: "No hospital found" }, { status: 404 });
-    }
-
-    return NextResponse.json(hospital);
-  } catch (err) {
-    return NextResponse.json({ error: "Fetch failed" }, { status: 500 });
-  }
-}
-</file>
-
 <file path="backend/src/app/api/hospital/map/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db"; 
@@ -1552,26 +1530,6 @@ COOKIE_DOMAIN=
 
 // NOTE: This file should not be edited
 // see https://nextjs.org/docs/basic-features/typescript for more information.
-</file>
-
-<file path="backend/next.config.js">
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  poweredByHeader: false,
-  // 1. Helps avoid issues with Prisma/Server Components during build
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  // 2. Ensures the build doesn't fail if there are minor TS issues in production
-  typescript: {
-    ignoreBuildErrors: true, 
-  },
-  // 3. Helpful for Render's environment if you use standalone output (saves disk space)
-  output: 'standalone', 
-};
-
-module.exports = nextConfig;
 </file>
 
 <file path="backend/tailwind.config.js">
@@ -4985,41 +4943,6 @@ export default config;
 - [x] Finalize user experience flow
 </file>
 
-<file path="frontend/tsconfig.json">
-{
-  "compilerOptions": {
-    "target": "ES6",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": false,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    },
-    "plugins": [
-      { "name": "next" }
-    ]
-  },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
-  "exclude": ["node_modules"]
-}
-</file>
-
 <file path="PWA/app/layout.tsx">
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
@@ -5895,6 +5818,66 @@ export async function GET(
 }
 </file>
 
+<file path="backend/src/app/api/hospital/active/route.ts">
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+
+/* ---------------- CORS ---------------- */
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+/* ---------------- OPTIONS HANDLER ---------------- */
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      status: 200,
+      headers: corsHeaders,
+    }
+  );
+}
+
+/* ---------------- GET ---------------- */
+export async function GET() {
+  try {
+    // Find the first hospital in the DB
+    const hospital = await prisma.hospital.findFirst({
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!hospital) {
+      return NextResponse.json(
+        { error: "No hospital found" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    return NextResponse.json(hospital, {
+      headers: corsHeaders,
+    });
+  } catch (err) {
+    console.error("Hospital Fetch Error:", err);
+
+    return NextResponse.json(
+      { error: "Fetch failed" },
+      {
+        status: 500,
+        headers: corsHeaders,
+      }
+    );
+  }
+}
+</file>
+
 <file path="backend/src/app/api/hospital/my/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma"; // Use consistent prisma import
@@ -6398,69 +6381,31 @@ export async function validateHospitalSubscription(hospitalId: string) {
 }
 </file>
 
-<file path="backend/middleware.ts">
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+<file path="backend/next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
 
-const ALLOWED_ORIGINS = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "https://hospinav.vercel.app",
-];
+  poweredByHeader: false,
 
-export function middleware(req: NextRequest) {
-  const origin = req.headers.get("origin");
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 
-  const isAllowedOrigin = origin && ALLOWED_ORIGINS.includes(origin);
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 
-  // ✅ PRE-FLIGHT
-  if (req.method === "OPTIONS") {
-    return new NextResponse(null, {
-      status: 204,
-      headers: isAllowedOrigin
-        ? {
-            "Access-Control-Allow-Origin": origin!,
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "86400",
-          }
-        : {},
-    });
-  }
+  output: "standalone",
 
-  // ✅ AUTH CHECK (production only)
-  if (
-    process.env.NODE_ENV === "production" &&
-    req.nextUrl.pathname.startsWith("/api/hospital") &&
-    ["POST", "PUT", "DELETE"].includes(req.method)
-  ) {
-    const session =
-      req.cookies.get("next-auth.session-token") ||
-      req.cookies.get("__Secure-next-auth.session-token");
-
-    if (!session) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-  }
-
-  // ✅ NORMAL FLOW
-  const res = NextResponse.next();
-
-  if (isAllowedOrigin) {
-    res.headers.set("Access-Control-Allow-Origin", origin!);
-    res.headers.set("Access-Control-Allow-Credentials", "true");
-  }
-
-  return res;
-}
-
-export const config = {
-  matcher: "/api/:path*",
+  experimental: {
+    serverActions: {
+      allowedOrigins: ["*"],
+    },
+  },
 };
+
+module.exports = nextConfig;
 </file>
 
 <file path="backend/postcss.config.js">
@@ -6469,158 +6414,6 @@ module.exports = {
     '@tailwindcss/postcss': {},
     autoprefixer: {},
   },
-}
-</file>
-
-<file path="frontend/app/login/LoginContent.tsx">
-"use client";
-
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { Navigation, ArrowRight, AlertCircle, Eye, EyeOff } from "lucide-react";
-
-export default function LoginContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/auth/login`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email, password }),
-        }
-      );
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Login failed");
-      }
-
-      const hospitalRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/hospital/my`,
-        {
-          method: "GET",
-          credentials: "include",
-        }
-      );
-
-      if (hospitalRes.ok) {
-        const destination = searchParams.get("redirect") || "/dashboard";
-        router.replace(destination);
-      } else {
-        router.replace("/register-hospital");
-      }
-    } catch (err: any) {
-      setError(err.message || "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  console.log("BACKEND:", process.env.NEXT_PUBLIC_BACKEND_URL);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-slate-200">
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-indigo-600 rounded-xl mx-auto flex items-center justify-center mb-4">
-            <Navigation className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">Vazhikatti</h1>
-          <p className="text-slate-500 mt-1">
-            Sign in to manage your hospital map
-          </p>
-        </div>
-
-        {error && (
-          <div className="flex items-center gap-2 p-3 mb-6 bg-red-50 border border-red-100 rounded-lg text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4" />
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-              placeholder="name@hospital.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="relative">
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all flex items-center justify-center disabled:opacity-50 active:scale-[0.98]"
-          >
-            {loading ? (
-              "Verifying..."
-            ) : (
-              <>
-                Sign In <ArrowRight className="ml-2 w-4 h-4" />
-              </>
-            )}
-          </button>
-        </form>
-
-        <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-          <p className="text-slate-600 text-sm">
-            Don't have an account?{" "}
-            <Link
-              href="/signup"
-              className="text-indigo-600 font-semibold hover:text-indigo-500 transition-colors"
-            >
-              Create an account
-            </Link>
-          </p>
-        </div>
-      </div>
-    </div>
-  );
 }
 </file>
 
@@ -7118,36 +6911,38 @@ const nextConfig = {
 module.exports = nextConfig;
 </file>
 
-<file path="frontend/package.json">
+<file path="frontend/tsconfig.json">
 {
-  "name": "hospinav-frontend",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+  "compilerOptions": {
+    "target": "ES6",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "plugins": [
+      { "name": "next" }
+    ]
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.89.0",
-    "@tailwindcss/typography": "^0.5.10",
-    "jose": "^6.1.3",
-    "lucide-react": "^0.276.0",
-    "next": "^14.2.35",
-    "qrcode.react": "^4.2.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-hot-toast": "^2.6.0",
-    "react-sparklines": "^1.7.0",
-    "recharts": "^2.7.2"
-  },
-  "devDependencies": {
-    "@types/node": "^20.4.2",
-    "@types/react": "18.3.27",
-    "autoprefixer": "^10.4.15",
-    "postcss": "^8.4.27",
-    "tailwindcss": "^3.3.3",
-    "typescript": "5.9.3"
-  }
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
 }
 </file>
 
@@ -7189,245 +6984,6 @@ body::before {
   background-color: var(--color-glass);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-}
-</file>
-
-<file path="PWA/app/page.tsx">
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
-import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX } from "lucide-react";
-
-import QRAnchorScanner from "@/components/QRAnchorScanner";
-import Compass from "@/components/Compass";
-import FloorDetector from "@/components/FloorDetector";
-import MapOverlay from "@/components/MapOverlay";
-import NavigationSteps from "@/components/NavigationSteps";
-
-export default function NavigatePage() {
-  // UI & Interaction States
-  const [showScanner, setShowScanner] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [isFloorOverridden, setIsFloorOverridden] = useState(false);
-  
-  // Navigation & Mapping States
-  const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
-  const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
-  const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
-  const [floorId, setFloorId] = useState<string | null>(null);
-  const [poiList, setPoiList] = useState<any[]>([]);
-  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
-  const [hospitalId, setHospitalId] = useState<string | null>(null);
-  const [graphData, setGraphData] = useState<any>(null);
-
-  // Voice Synthesis Setup
-  const speak = useCallback((text: string) => {
-    if (isMuted || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.speak(utterance);
-  }, [isMuted]);
-
-  // Device Orientation for Map Rotation
-  useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      if (e.alpha !== null) setRotation(e.alpha);
-    };
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, []);
-
-  // Fetch Hospital Context on Mount
-  useEffect(() => {
-    fetch("/api/hospital/active")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.id) setHospitalId(d.id);
-      })
-      .catch(err => console.error("Initial context fetch failed", err));
-  }, []);
-
-  /**
-   * Robust QR Detection Handler
-   * Handles raw UUIDs or full URLs (http://localhost:3000/api/scan/ID)
-   */
-  const handleQRDetect = async (data: any) => {
-    try {
-      const raw = typeof data === "string" ? data : data?.data || data?.url;
-      console.log("QR Raw Data:", raw);
-
-      // Extract UUID from URL if necessary
-      let qrId = raw;
-      if (raw.includes("/api/scan/")) {
-        const parts = raw.split("/api/scan/");
-        qrId = parts[parts.length - 1]; 
-      }
-      // Clean up any trailing parameters or slashes
-      qrId = qrId.split(/[?#]/)[0].replace(/\/$/, "");
-
-      const res = await fetch(`/api/scan/${qrId}`);
-      const result = await res.json();
-
-      if (res.ok) {
-        // 1. Update User Position & Floor context
-        setScannedNode({ id: result.nodeId, x: result.x, y: result.y });
-        setFloorId(String(result.floorId)); 
-        setIsFloorOverridden(true);
-        
-        // 2. Populate Map & Graph Data from single API call
-        setPoiList(result.availablePois || []);
-        setGraphData(result.graphData);
-        
-        setCurrentLocation(result.locationName);
-        setShowScanner(false);
-        speak(`Position updated. You are at ${result.locationName}`);
-      } else {
-        console.error("Scan API Error:", result.error);
-      }
-    } catch (err) {
-      console.error("Critical scan failure:", err);
-    }
-  };
-
-  return (
-    <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
-      {/* Auto-detect floor via sensor (if not overridden by QR) */}
-      <FloorDetector onFloor={(f) => {
-        if (!isFloorOverridden) setFloorId(f.toString());
-      }} />
-
-      {/* HEADER SECTION */}
-      <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
-        <div className="flex items-center gap-4">
-          <Compass />
-          <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-white/5 rounded-lg text-slate-400">
-            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          </button>
-        </div>
-        <div className="text-center">
-          <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
-          <p className="text-[8px] text-slate-500 uppercase font-bold">{currentLocation}</p>
-        </div>
-        <button onClick={() => window.location.reload()} className="text-slate-400">
-          <RotateCcw size={18} />
-        </button>
-      </header>
-
-      {/* INTERACTIVE MAP AREA */}
-      <div className="flex-1 relative w-full overflow-hidden z-10">
-        <MapOverlay 
-          poiList={poiList} 
-          userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
-          targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
-          path={pathCoords}
-          rotation={rotation}
-        />
-
-        {/* Floating Scanner Button */}
-        {scannedNode && !showScanner && (
-          <button 
-            onClick={() => setShowScanner(true)}
-            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-95 transition-all"
-          >
-            <Camera size={20} className="text-white" />
-          </button>
-        )}
-
-        {/* Initial Scan Prompt */}
-        {!scannedNode && !showScanner && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
-            <Navigation size={48} className="text-blue-500 animate-pulse" />
-            <button 
-              onClick={() => setShowScanner(true)}
-              className="px-8 py-3 bg-blue-600 rounded-xl font-bold shadow-2xl"
-            >
-              Scan QR to Start
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* NAVIGATION & SEARCH DRAWER */}
-      {scannedNode && (
-        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-          {!targetNode || isSearching ? (
-            <div className="space-y-4">
-              <div className="relative">
-                <input 
-                  autoFocus={isSearching}
-                  placeholder="Search Departments..."
-                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none focus:border-blue-500 transition-colors"
-                  onFocus={() => setIsSearching(true)}
-                />
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
-                {isSearching && (
-                  <button onClick={() => setIsSearching(false)} className="absolute right-4 top-1/2 -translate-y-1/2">
-                    <X size={18} className="text-slate-500" />
-                  </button>
-                )}
-              </div>
-              {isSearching && (
-                <div className="max-h-48 overflow-y-auto space-y-2 mt-2 custom-scrollbar">
-                   {poiList.length > 0 ? poiList.map((poi) => (
-                      <button 
-                        key={poi.id}
-                        onClick={() => { 
-                          setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
-                          setIsSearching(false); 
-                        }} 
-                        className="w-full p-4 text-left bg-white/5 hover:bg-white/10 active:bg-blue-600/20 rounded-xl text-sm border border-white/5 transition-colors"
-                      >
-                        {poi.name}
-                      </button>
-                   )) : (
-                     <div className="p-4 text-center text-slate-500 text-xs italic">
-                        No points loaded. Try re-scanning.
-                     </div>
-                   )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Active Navigation</span>
-                <button 
-                  onClick={() => { setTargetNode(null); setPathCoords([]); }}
-                  className="p-1 hover:bg-white/10 rounded-md"
-                >
-                  <X size={16} className="text-slate-500" />
-                </button>
-              </div>
-              <NavigationSteps 
-                hospitalId={hospitalId || ""} 
-                floorId={floorId}
-                startNodeId={scannedNode.id}
-                endNodeId={targetNode.id}
-                graphData={graphData}
-                onStepUpdate={(text) => speak(text)}
-                onPathUpdate={(coords) => setPathCoords(coords)}
-              />
-            </div>
-          )}
-        </footer>
-      )}
-
-      {/* FULLSCREEN SCANNER OVERLAY */}
-      {showScanner && (
-        <div className="fixed inset-0 z-50 bg-black">
-          <QRAnchorScanner onDetect={handleQRDetect} />
-          <button 
-            onClick={() => setShowScanner(false)} 
-            className="absolute top-10 right-6 p-4 bg-white/10 backdrop-blur-md rounded-full border border-white/20"
-          >
-            <X size={24} className="text-white" />
-          </button>
-        </div>
-      )}
-    </main>
-  );
 }
 </file>
 
@@ -8153,6 +7709,72 @@ export async function POST(req: NextRequest) {
 }
 </file>
 
+<file path="backend/middleware.ts">
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "https://hospinav.vercel.app",
+];
+
+export function middleware(req: NextRequest) {
+  const origin = req.headers.get("origin");
+
+  const isAllowedOrigin = origin && ALLOWED_ORIGINS.includes(origin);
+
+  // ✅ PRE-FLIGHT
+  if (req.method === "OPTIONS") {
+    return new NextResponse(null, {
+      status: 204,
+      headers: isAllowedOrigin
+        ? {
+            "Access-Control-Allow-Origin": origin!,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "86400",
+          }
+        : {},
+    });
+  }
+
+  // ✅ AUTH CHECK (production only)
+  if (
+    process.env.NODE_ENV === "production" &&
+    req.nextUrl.pathname.startsWith("/api/hospital") &&
+    ["POST", "PUT", "DELETE"].includes(req.method)
+  ) {
+    const session =
+      req.cookies.get("next-auth.session-token") ||
+      req.cookies.get("__Secure-next-auth.session-token");
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+  }
+
+  // ✅ NORMAL FLOW
+  const res = NextResponse.next();
+
+  if (isAllowedOrigin) {
+    res.headers.set("Access-Control-Allow-Origin", origin!);
+    res.headers.set("Access-Control-Allow-Credentials", "true");
+  }
+
+  return res;
+}
+
+export const config = {
+  matcher: "/api/:path*",
+};
+</file>
+
 <file path="frontend/app/upload/page.tsx">
 "use client";
 
@@ -8407,6 +8029,440 @@ export default function Upload() {
 }
 </file>
 
+<file path="frontend/package.json">
+{
+  "name": "hospinav-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "@tailwindcss/typography": "^0.5.10",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.1.3",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.276.0",
+    "next": "^14.2.35",
+    "qrcode.react": "^4.2.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-sparklines": "^1.7.0",
+    "recharts": "^2.7.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.4.2",
+    "@types/react": "18.3.27",
+    "autoprefixer": "^10.4.15",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "5.9.3"
+  }
+}
+</file>
+
+<file path="PWA/app/page.tsx">
+"use client";
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX, Languages } from "lucide-react";
+
+import QRAnchorScanner from "@/components/QRAnchorScanner";
+import Compass from "@/components/Compass";
+import FloorDetector from "@/components/FloorDetector";
+import MapOverlay from "@/components/MapOverlay";
+import NavigationSteps from "@/components/NavigationSteps";
+
+// ✅ Explicit API Base URL mapping targeting your port 3000 database server
+const BACKEND_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+
+// Complete English to Tamil Translation Dictionary Map
+const translations: { [key: string]: string } = {
+  "Scan QR to Begin": "தொடங்க QR குறியீட்டை ஸ்கேன் செய்யவும்",
+  "Scan QR to Start": "தொடங்க ஸ்கேன் செய்யவும்",
+  "Search Departments...": "பிரிவுகளைத் தேடுங்கள்...",
+  "Active Navigation": "செயலில் உள்ள வழிசெலுத்தல்",
+  "No points loaded. Try re-scanning.": "தரவு கிடைக்கவில்லை. மீண்டும் ஸ்கேன் செய்யவும்.",
+  "No destinations match your search.": "தேடலுக்குரிய இடங்கள் எதுவும் இல்லை."
+};
+
+export default function NavigatePage() {
+  // UI & Interaction States
+  const [showScanner, setShowScanner] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(""); // Managed search matching state
+  const [isMuted, setIsMuted] = useState(false);
+  const [lang, setLang] = useState<"en" | "ta">("en"); // Dynamic language context state
+  const [rotation, setRotation] = useState(0);
+  const [isFloorOverridden, setIsFloorOverridden] = useState(false);
+  
+  // Navigation & Mapping States
+  const [scannedNode, setScannedNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [targetNode, setTargetNode] = useState<{id: string, x: number, y: number} | null>(null);
+  const [pathCoords, setPathCoords] = useState<{x: number, y: number}[]>([]);
+  const [floorId, setFloorId] = useState<string | null>(null);
+  const [poiList, setPoiList] = useState<any[]>([]);
+  const [currentLocation, setCurrentLocation] = useState("Scan QR to Begin");
+  const [hospitalId, setHospitalId] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<any>(null);
+
+  // Translation Helper Function
+  const t = useCallback((text: string) => {
+    if (lang === "en") return text;
+    if (translations[text]) return translations[text];
+    
+    // Check for dynamic vocal strings matching current tracking scenarios
+    if (text.startsWith("Position updated. You are at ")) {
+      const loc = text.replace("Position updated. You are at ", "");
+      return `இருப்பிடம் புதுப்பிக்கப்பட்டது. நீங்கள் இப்போது ${loc}-ல் உள்ளீர்கள்.`;
+    }
+    if (text.startsWith("Routing path to ")) {
+      const dest = text.replace("Routing path to ", "");
+      return `${dest}-விற்கான வழித்தடம் கணக்கிடப்படுகிறது.`;
+    }
+    return text;
+  }, [lang]);
+
+  // Voice Synthesis Setup
+  const speak = useCallback((text: string) => {
+    if (isMuted || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    
+    const translatedText = t(text);
+    const utterance = new SpeechSynthesisUtterance(translatedText);
+    
+    if (lang === "ta") {
+      utterance.lang = "ta-IN"; 
+      utterance.rate = 0.9;
+    } else {
+      utterance.lang = "en-US";
+      utterance.rate = 1.0;
+    }
+    window.speechSynthesis.speak(utterance);
+  }, [isMuted, lang, t]);
+
+  // Caching handlers to preserve functional component rendering sanity
+  const handlePathUpdate = useCallback((coords: { x: number; y: number }[]) => {
+    setPathCoords(coords);
+  }, []);
+
+  const handleStepUpdate = useCallback((text: string) => {
+    speak(text);
+  }, [speak]);
+
+  // Real-time computed filter matching algorithm for search queries
+  const filteredPoiList = useMemo(() => {
+    if (!searchQuery.trim()) return poiList;
+    return poiList.filter((poi) =>
+      poi.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [searchQuery, poiList]);
+
+  // Device Orientation for Map Rotation
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha !== null) setRotation(e.alpha);
+    };
+    window.addEventListener("deviceorientation", handleOrientation);
+    return () => window.removeEventListener("deviceorientation", handleOrientation);
+  }, []);
+
+  // Fetch Hospital Context on Mount (Patched to intercept Database Port 3000)
+  useEffect(() => {
+    fetch(`${BACKEND_API_BASE}/api/hospital/active`)
+      .then(async (r) => {
+        const contentType = r.headers.get("content-type");
+        if (!r.ok || !contentType || !contentType.includes("application/json")) {
+          throw new Error("Port 3000 interface did not answer with legitimate JSON parameters.");
+        }
+        return r.json();
+      })
+      .then((d) => {
+        if (d?.id) setHospitalId(d.id);
+      })
+      .catch(err => {
+        console.error("Initial context fetch failed, ensuring default fallback active:", err);
+      });
+  }, []);
+
+  /**
+   * Robust QR Detection Handler
+   * Handles raw UUIDs or full URLs (http://localhost:3000/api/scan/ID)
+   */
+const handleQRDetect = async (data: any) => {
+  try {
+    console.log("📦 Full QR Payload:", data);
+
+    // SAFELY extract QR text
+    let raw = "";
+
+    if (typeof data === "string") {
+      raw = data;
+    } else if (data?.data) {
+      raw = data.data;
+    } else if (data?.text) {
+      raw = data.text;
+    } else if (data?.rawValue) {
+      raw = data.rawValue;
+    } else if (Array.isArray(data) && data[0]?.rawValue) {
+      raw = data[0].rawValue;
+    }
+
+    if (!raw) {
+      throw new Error("QR scanner returned empty data");
+    }
+
+    console.log("✅ QR Raw Data:", raw);
+
+    // Extract UUID from URL if necessary
+    let qrId = raw;
+
+    if (raw.includes("/api/scan/")) {
+      const parts = raw.split("/api/scan/");
+      qrId = parts[parts.length - 1];
+    }
+
+    qrId = qrId.split(/[?#]/)[0].replace(/\/$/, "");
+
+    console.log("✅ Parsed QR ID:", qrId);
+
+    // API Request
+    const res = await fetch(
+      `${BACKEND_API_BASE}/api/scan/${qrId}`,
+      {
+        method: "GET",
+        mode: "cors",
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Scan API failed: ${res.status}`);
+    }
+
+    const result = await res.json();
+
+    console.log("✅ Scan API Response:", result);
+
+    // Validate response
+    if (!result?.nodeId) {
+      throw new Error("Missing nodeId in API response");
+    }
+
+    if (result.hospitalId) {
+  setHospitalId(String(result.hospitalId));
+}
+
+    // Update app state
+    setScannedNode({
+      id: result.nodeId,
+      x: Number(result.x) || 0,
+      y: Number(result.y) || 0,
+    });
+
+    setFloorId(
+      result.floorId ? String(result.floorId) : null
+    );
+
+    setIsFloorOverridden(true);
+
+    setPoiList(result.availablePois || []);
+
+    setGraphData(result.graphData || null);
+
+    setCurrentLocation(
+      result.locationName || "Current Location"
+    );
+
+    // IMPORTANT
+    setShowScanner(false);
+
+    speak(
+      `Position updated. You are at ${
+        result.locationName || "current location"
+      }`
+    );
+
+    console.log("✅ Scanner closed successfully");
+  } catch (err: any) {
+    console.error("❌ Critical scan failure:", err);
+
+    alert(
+      `Scanner failed:\n${
+        err?.message || "Unknown error"
+      }`
+    );
+  }
+};
+  return (
+    <main className="fixed inset-0 h-screen w-full bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      {/* Auto-detect floor via sensor (if not overridden by QR) */}
+      <FloorDetector onFloor={(f) => {
+        if (!isFloorOverridden) setFloorId(f.toString());
+      }} />
+
+      {/* HEADER SECTION */}
+      <header className="h-16 shrink-0 px-6 flex justify-between items-center border-b border-white/10 bg-slate-900/80 backdrop-blur-md z-30">
+        <div className="flex items-center gap-2">
+          <Compass />
+          <button onClick={() => setIsMuted(!isMuted)} className="p-2 bg-white/5 rounded-lg text-slate-400">
+            {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          
+          {/* Real-time Multi-Language System Toggle Switch */}
+          <button 
+            onClick={() => setLang(lang === "en" ? "ta" : "en")} 
+            className="flex items-center gap-1.5 p-2 bg-blue-600/10 hover:bg-blue-600/20 active:scale-95 border border-blue-500/30 rounded-lg text-blue-400 font-bold text-xs transition-all"
+          >
+            <Languages size={14} />
+            <span>{lang === "en" ? "தமிழ்" : "EN"}</span>
+          </button>
+        </div>
+
+        <div className="text-center max-w-[40%]">
+          <h1 className="text-[10px] font-bold tracking-[0.4em] text-blue-400 uppercase">VAZHIKATTI</h1>
+          <p className="text-[9px] text-slate-400 font-medium truncate uppercase">{t(currentLocation)}</p>
+        </div>
+
+        <button onClick={() => window.location.reload()} className="text-slate-400">
+          <RotateCcw size={18} />
+        </button>
+      </header>
+
+      {/* INTERACTIVE MAP AREA */}
+      <div className="flex-1 relative w-full overflow-hidden z-10">
+        <MapOverlay 
+          poiList={poiList} 
+          userPos={scannedNode ? { x: scannedNode.x, y: scannedNode.y } : null}
+          targetPos={targetNode ? { x: targetNode.x, y: targetNode.y } : undefined}
+          path={pathCoords}
+          rotation={rotation}
+        />
+
+        {/* Floating Scanner Button */}
+        {scannedNode && !showScanner && (
+          <button 
+            onClick={() => setShowScanner(true)}
+            className="absolute top-4 right-4 z-40 p-3 bg-blue-600 rounded-full shadow-lg border border-white/20 active:scale-95 transition-all"
+          >
+            <Camera size={20} className="text-white" />
+          </button>
+        )}
+
+        {/* Initial Scan Prompt */}
+        {!scannedNode && !showScanner && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 bg-slate-950/80 backdrop-blur-sm z-20">
+            <Navigation size={48} className="text-blue-500 animate-pulse" />
+            <button 
+              onClick={() => setShowScanner(true)}
+              className="px-8 py-3 bg-blue-600 rounded-xl font-bold shadow-2xl tracking-wide text-sm"
+            >
+              {t("Scan QR to Start")}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* NAVIGATION & SEARCH DRAWER */}
+      {scannedNode && (
+        <footer className="shrink-0 p-6 bg-slate-900 border-t border-white/10 z-30 rounded-t-[2rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+          {!targetNode || isSearching ? (
+            <div className="space-y-4">
+              <div className="relative">
+                <input 
+                  autoFocus={isSearching}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t("Search Departments...")}
+                  className="w-full p-4 bg-white/5 rounded-xl border border-white/10 text-white outline-none focus:border-blue-500 transition-colors placeholder:text-slate-500 text-sm"
+                  onFocus={() => setIsSearching(true)}
+                />
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500" size={18} />
+                {(isSearching || searchQuery) && (
+                  <button 
+                    onClick={() => {
+                      setIsSearching(false);
+                      setSearchQuery("");
+                    }} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2"
+                  >
+                    <X size={18} className="text-slate-500" />
+                  </button>
+                )}
+              </div>
+              {isSearching && (
+                <div className="max-h-48 overflow-y-auto space-y-2 mt-2 custom-scrollbar">
+                   {filteredPoiList.length > 0 ? filteredPoiList.map((poi) => (
+                      <button 
+                        key={poi.id}
+                        onClick={() => { 
+                          setTargetNode({id: poi.nodeId, x: poi.x, y: poi.y}); 
+                          setIsSearching(false); 
+                          setSearchQuery("");
+                          speak(`Routing path to ${poi.name}`);
+                        }} 
+                        className="w-full p-4 text-left bg-white/5 hover:bg-white/10 active:bg-blue-600/20 rounded-xl text-sm border border-white/5 transition-colors"
+                      >
+                        {poi.name}
+                      </button>
+                   )) : (
+                     <div className="p-4 text-center text-slate-500 text-xs italic">
+                        {t("No destinations match your search.")}
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-blue-400 tracking-wide uppercase">
+                  {t("Active Navigation")}
+                </span>
+                <button 
+                  onClick={() => { setTargetNode(null); setPathCoords([]); }}
+                  className="p-1 hover:bg-white/10 rounded-md"
+                >
+                  <X size={16} className="text-slate-500" />
+                </button>
+              </div>
+              <NavigationSteps 
+                hospitalId={hospitalId || ""} 
+                floorId={floorId ? String(floorId) : ""}
+                startNodeId={scannedNode.id ? String(scannedNode.id) : ""}
+                endNodeId={targetNode.id ? String(targetNode.id) : ""}
+                graphData={graphData}
+                lang={lang}
+                onStepUpdate={handleStepUpdate}
+                onPathUpdate={handlePathUpdate}
+              />
+            </div>
+          )}
+        </footer>
+      )}
+
+      {/* FULLSCREEN SCANNER OVERLAY */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black">
+          <QRAnchorScanner onDetect={handleQRDetect} />
+          <button 
+            onClick={() => setShowScanner(false)} 
+            className="absolute top-10 right-6 p-4 bg-white/10 backdrop-blur-md rounded-full border border-white/20"
+          >
+            <X size={24} className="text-white" />
+          </button>
+        </div>
+      )}
+    </main>
+  );
+}
+</file>
+
 <file path="PWA/components/FloorDetector.tsx">
 "use client";
 
@@ -8653,76 +8709,124 @@ const nextConfig = {
 export default nextConfig;
 </file>
 
-<file path="backend/src/app/api/scan/[qrId]/route.ts">
+<file path="frontend/app/login/LoginContent.tsx">
+"use client";
+
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
-function cors(origin?: string) {
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
+/**
+ * ✅ STRICT CORS (NO dynamic origin)
+ */
+function setCorsHeaders(res: NextResponse) {
+  res.headers.set(
+    "Access-Control-Allow-Origin",
+    "https://codespace-f.vercel.app" // 🔥 YOUR FRONTEND URL
+  );
+  res.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
+  res.headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+
+  return res;
 }
 
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, {
-    status: 204,
-    headers: cors(req.headers.get("origin") || undefined),
-  });
+/* ---------------- OPTIONS (Preflight) ---------------- */
+export async function OPTIONS() {
+  const res = new NextResponse(null, { status: 204 });
+  return setCorsHeaders(res);
 }
 
-export async function GET(req: NextRequest, { params }: { params: { qrId: string } }) {
+/* ---------------- POST (Login) ---------------- */
+export async function POST(req: NextRequest) {
   try {
-    const origin = req.headers.get("origin") || undefined;
-    const { qrId } = params;
+    const { email, password } = await req.json();
 
-    if (!qrId) {
-      return NextResponse.json({ error: "QR ID missing" }, { status: 400, headers: cors(origin) });
+    if (!email || !password) {
+      return setCorsHeaders(
+        NextResponse.json(
+          { error: "Email and password required" },
+          { status: 400 }
+        )
+      );
     }
 
-    const poi = await prisma.poi.findUnique({
-      where: { qrId },
-      include: {
-        map: { select: { hospitalId: true } },
-        floor: { select: { id: true, level: true, graphData: true } },
-      },
+    // 1. Find User
+    const user = await prisma.user.findUnique({
+      where: { email },
     });
 
-    if (!poi) {
-      return NextResponse.json({ error: "Location QR not recognized" }, { status: 404, headers: cors(origin) });
+    if (!user || !user.passwordHash) {
+      return setCorsHeaders(
+        NextResponse.json(
+          { error: "Invalid credentials" },
+          { status: 401 }
+        )
+      );
     }
 
-    // Fetch all POIs on this floor to populate the map
-    const siblingPois = await prisma.poi.findMany({
-      where: { floorId: poi.floorId },
-    });
+    // 2. Validate Password
+    const valid = await bcrypt.compare(password, user.passwordHash);
 
-    return NextResponse.json(
-      {
-        nodeId: poi.nodeId,
-        locationName: poi.name,
-        floorId: String(poi.floorId), // Force string for frontend consistency[cite: 1]
-        floorLevel: poi.floor?.level || null,
-        hospitalId: poi.map?.hospitalId,
-        x: Number(poi.x) || 0,
-        y: Number(poi.y) || 0,
-        graphData: poi.floor?.graphData || null,
-        availablePois: siblingPois.map(p => ({
-          id: p.id,
-          name: p.name,
-          nodeId: p.nodeId,
-          x: Number(p.x),
-          y: Number(p.y),
-          type: p.type,
-          floorId: String(p.floorId) // Force string here too[cite: 1]
-        })),
-      },
-      { status: 200, headers: cors(origin) }
+    if (!valid) {
+      return setCorsHeaders(
+        NextResponse.json(
+          { error: "Invalid credentials" },
+          { status: 401 }
+        )
+      );
+    }
+
+    // 3. Create JWT
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET!,
+      { expiresIn: "7d" }
     );
-  } catch (err) {
-    console.error("Scan API Error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+
+    // 4. Create Response
+    const res = NextResponse.json(
+      {
+        success: true,
+        message: "Login successful",
+        user: {
+          id: user.id,
+          email: user.email,
+          planStatus: user.planStatus,
+        },
+      },
+      { status: 200 }
+    );
+
+    // 5. ✅ SET COOKIE (CRITICAL)
+    res.cookies.set({
+      name: "auth-token",
+      value: token,
+      httpOnly: true,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+      sameSite: "none", // 🔥 REQUIRED for cross-domain
+      secure: true,     // 🔥 REQUIRED for HTTPS (Vercel)
+    });
+
+    return setCorsHeaders(res);
+
+  } catch (error) {
+    console.error("Login Error:", error);
+
+    return setCorsHeaders(
+      NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      )
+    );
   }
 }
 </file>
@@ -10346,6 +10450,80 @@ module.exports = {
 </files>
 </file>
 
+<file path="backend/src/app/api/scan/[qrId]/route.ts">
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+function cors(origin?: string) {
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 204,
+    headers: cors(req.headers.get("origin") || undefined),
+  });
+}
+
+export async function GET(req: NextRequest, { params }: { params: { qrId: string } }) {
+  try {
+    const origin = req.headers.get("origin") || undefined;
+    const { qrId } = params;
+
+    if (!qrId) {
+      return NextResponse.json({ error: "QR ID missing" }, { status: 400, headers: cors(origin) });
+    }
+
+    const poi = await prisma.poi.findUnique({
+      where: { qrId },
+      include: {
+        map: { select: { hospitalId: true } },
+        floor: { select: { id: true, level: true, graphData: true } },
+      },
+    });
+
+    if (!poi) {
+      return NextResponse.json({ error: "Location QR not recognized" }, { status: 404, headers: cors(origin) });
+    }
+
+    // Fetch all POIs on this floor to populate the map
+    const siblingPois = await prisma.poi.findMany({
+      where: { floorId: poi.floorId },
+    });
+
+    return NextResponse.json(
+      {
+        nodeId: poi.nodeId,
+        locationName: poi.name,
+        floorId: String(poi.floorId), // Force string for frontend consistency[cite: 1]
+        floorLevel: poi.floor?.level || null,
+        hospitalId: poi.map?.hospitalId,
+        x: Number(poi.x) || 0,
+        y: Number(poi.y) || 0,
+        graphData: poi.floor?.graphData || null,
+        availablePois: siblingPois.map(p => ({
+          id: p.id,
+          name: p.name,
+          nodeId: p.nodeId,
+          x: Number(p.x),
+          y: Number(p.y),
+          type: p.type,
+          floorId: String(p.floorId) // Force string here too[cite: 1]
+        })),
+      },
+      { status: 200, headers: cors(origin) }
+    );
+  } catch (err) {
+    console.error("Scan API Error:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+</file>
+
 <file path="backend/package.json">
 {
   "name": "hospinav-backend",
@@ -10834,194 +11012,6 @@ function Tool({ icon, label, active, onClick }: { icon: React.ReactNode; label: 
 }
 </file>
 
-<file path="frontend/middleware.ts">
-import { NextRequest, NextResponse } from "next/server";
-
-const PUBLIC_PATHS = ["/login", "/signup", "/pricing", "/"];
-
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // 1. Skip middleware for static assets and internal Next.js tasks
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") ||
-    pathname.includes(".") // Catch-all for favicon, images, etc.
-  ) {
-    return NextResponse.next();
-  }
-
-  // 2. Public Path Check
-  if (PUBLIC_PATHS.some((path) => pathname === path)) {
-    return NextResponse.next();
-  }
-
-  // 3. Auth Check
-  const token = req.cookies.get("auth-token")?.value;
-
-  if (!token) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-};
-</file>
-
-<file path="PWA/components/NavigationSteps.tsx">
-"use client";
-
-import { useEffect, useState, useRef } from "react";
-import { ArrowUp, ArrowUpLeft, ArrowUpRight, CheckCircle2 } from "lucide-react";
-
-interface Props {
-  startNodeId: string;
-  endNodeId: string;
-  floorId: string;
-  hospitalId: string;
-  lang?: "en" | "ta";
-  onStepUpdate: (en: string, ta: string) => void;
-  onPathUpdate: (coords: { x: number; y: number }[]) => void;
-}
-
-const TXT = {
-  en: { start: "Start moving", straight: "Go straight", left: "Turn left", right: "Turn right", end: "You have arrived" },
-  ta: { start: "பயணத்தைத் தொடங்குங்கள்", straight: "நேராகச் செல்லுங்கள்", left: "இடதுபுறம் திரும்புங்கள்", right: "வலதுபுறம் திரும்புங்கள்", end: "இலக்கை அடைந்துவிட்டீர்கள்" }
-};
-
-export default function NavigationSteps({
-  startNodeId,
-  endNodeId,
-  floorId,
-  hospitalId,
-  lang = "ta",
-  onStepUpdate,
-  onPathUpdate
-}: Props) {
-  const [steps, setSteps] = useState<{ textEn: string; textTa: string; type: string }[]>([]);
-  const [loading, setLoading] = useState(false);
-  const lastSpokenRef = useRef("");
-
-  useEffect(() => {
-    if (!startNodeId || !endNodeId) return;
-
-    async function getRoute() {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/navigation/shortest-path", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hospitalId, floorId, startNodeId, endNodeId })
-        });
-
-        const data = await res.json();
-        
-        if (data.path && data.path.length > 0) {
-          // ✅ FIX: Ensure coordinates are numbers and logged for debugging
-          const path = data.path.map((p: any) => ({ 
-            x: parseFloat(p.x), 
-            y: parseFloat(p.y) 
-          }));
-
-          console.log("📍 Path Calculated:", path);
-          onPathUpdate(path);
-
-          const generated = [];
-          generated.push({ textEn: TXT.en.start, textTa: TXT.ta.start, type: "start" });
-
-          // Turn logic
-          for (let i = 0; i < path.length - 2; i++) {
-            const p1 = path[i];
-            const p2 = path[i + 1];
-            const p3 = path[i + 2];
-
-            const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-            const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
-            let diff = (angle2 - angle1) * (180 / Math.PI);
-
-            if (diff > 180) diff -= 360;
-            if (diff < -180) diff += 360;
-
-            if (diff < -30) {
-              generated.push({ textEn: TXT.en.left, textTa: TXT.ta.left, type: "left" });
-            } else if (diff > 30) {
-              generated.push({ textEn: TXT.en.right, textTa: TXT.ta.right, type: "right" });
-            } else if (i % 4 === 0) { 
-              generated.push({ textEn: TXT.en.straight, textTa: TXT.ta.straight, type: "straight" });
-            }
-          }
-
-          generated.push({ textEn: TXT.en.end, textTa: TXT.ta.end, type: "end" });
-          setSteps(generated);
-
-          const current = generated[0];
-          if (current && current.textEn !== lastSpokenRef.current) {
-            onStepUpdate(current.textEn, current.textTa);
-            lastSpokenRef.current = current.textEn;
-          }
-        }
-      } catch (err) {
-        console.error("❌ Route Fetch Error:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    getRoute();
-  }, [startNodeId, endNodeId, floorId, hospitalId]);
-
-  const getIcon = (type: string) => {
-    switch (type) {
-      case "left": return <ArrowUpLeft className="text-blue-400" />;
-      case "right": return <ArrowUpRight className="text-blue-400" />;
-      case "end": return <CheckCircle2 className="text-emerald-500" />;
-      default: return <ArrowUp className="text-slate-400" />;
-    }
-  };
-
-  if (loading) return (
-    <div className="flex items-center gap-2 p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
-      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Calculating Path...</span>
-    </div>
-  );
-
-  return (
-    <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2 custom-scrollbar pb-10">
-      {steps.length === 0 && !loading && (
-        <p className="text-slate-500 text-xs italic text-center p-4">Scan a QR to see steps</p>
-      )}
-      {steps.map((step, i) => (
-        <div 
-          key={i} 
-          className={`flex items-center gap-4 p-4 rounded-2xl transition-all duration-500 ${
-            i === 0 ? "bg-blue-600 shadow-lg shadow-blue-900/40 scale-[1.02]" : "bg-white/5 opacity-40"
-          }`}
-        >
-          <div className={`p-2 rounded-xl ${i === 0 ? "bg-white/20" : "bg-slate-800"}`}>
-            {getIcon(step.type)}
-          </div>
-          <div>
-            <p className={`text-sm font-bold ${i === 0 ? "text-white" : "text-slate-300"}`}>
-              {lang === "en" ? step.textEn : step.textTa}
-            </p>
-            {i === 0 && (
-              <p className="text-[9px] text-blue-100 uppercase font-black mt-0.5 opacity-80">
-                Instruction {i + 1}
-              </p>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-</file>
-
 <file path="backend/prisma/schema.prisma">
 generator client {
   provider = "prisma-client-js"
@@ -11185,9 +11175,235 @@ enum PaymentProvider {
 }
 </file>
 
+<file path="PWA/components/NavigationSteps.tsx">
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { ArrowUp, ArrowUpLeft, ArrowUpRight, CheckCircle2 }  from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+
+interface Props {
+  startNodeId: string;
+  endNodeId: string;
+  floorId: string;
+  hospitalId: string;
+  lang?: "en" | "ta";
+  onStepUpdate: (text: string) => void;
+  onPathUpdate: (coords: { x: number; y: number }[]) => void;
+}
+
+const TXT = {
+  en: { start: "Start moving", straight: "Go straight", left: "Turn left", right: "Turn right", end: "You have arrived" },
+  ta: { start: "பயணத்தைத் தொடங்குங்கள்", straight: "நேராகச் செல்லுங்கள்", left: "இடதுபுறம் திரும்புங்கள்", right: "வலதுபுறம் திரும்புங்கள்", end: "இலக்கை அடைந்துவிட்டீர்கள்" }
+};
+
+export default function NavigationSteps({
+  startNodeId,
+  endNodeId,
+  floorId,
+  hospitalId,
+  lang = "en", // 🌟 FIXED: Changed default value from "ta" to "en" to align with parent engine
+  onStepUpdate,
+  onPathUpdate
+}: Props) {
+  const [steps, setSteps] = useState<{ textEn: string; textTa: string; type: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  const lastSpokenRef = useRef("");
+  const parametersKey = `${startNodeId}-${endNodeId}-${floorId}-${hospitalId}`;
+
+  useEffect(() => {
+    console.log("⚓ Navigation Payload Tracked:", { startNodeId, endNodeId, floorId, hospitalId });
+
+    if (!startNodeId || startNodeId === "undefined" || startNodeId === "null") return;
+    if (!endNodeId || endNodeId === "undefined" || endNodeId === "null") return;
+
+    let isMounted = true;
+
+    async function getRoute() {
+      setLoading(true);
+      setErrorMessage(null);
+      setSteps([]); 
+
+      try {
+        console.log("🌐 Triggering Shortest-Path Request to Server...");
+        console.log("🌐 Navigation API:", `${API_BASE}/api/navigation/shortest-path`);
+        
+        const res = await fetch(`${API_BASE}/api/navigation/shortest-path`, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            hospitalId: hospitalId, 
+            floorId: String(floorId), 
+            startNodeId: String(startNodeId), 
+            endNodeId: String(endNodeId) 
+          })
+        });
+
+        if (!res.ok) {
+          throw new Error(`API responded with status code: ${res.status}`);
+        }
+
+        const data = await res.json();
+        console.log("📦 Route API Success Payload:", data);
+        
+        if (!isMounted) return;
+
+        if (data && data.path && data.path.length > 0) {
+          const path = data.path.map((p: any) => ({ 
+            x: parseFloat(p.x || 0), 
+            y: parseFloat(p.y || 0) 
+          }));
+
+          onPathUpdate(path);
+
+          const generated = [];
+          generated.push({ textEn: TXT.en.start, textTa: TXT.ta.start, type: "start" });
+
+          for (let i = 0; i < path.length - 2; i++) {
+            const p1 = path[i];
+            const p2 = path[i + 1];
+            const p3 = path[i + 2];
+
+            const angle1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const angle2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+            let diff = (angle2 - angle1) * (180 / Math.PI);
+
+            if (diff > 180) diff -= 360;
+            if (diff < -180) diff += 360;
+
+            if (diff < -30) {
+              generated.push({ textEn: TXT.en.left, textTa: TXT.ta.left, type: "left" });
+            } else if (diff > 30) {
+              generated.push({ textEn: TXT.en.right, textTa: TXT.ta.right, type: "right" });
+            } else if (i % 4 === 0) { 
+              generated.push({ textEn: TXT.en.straight, textTa: TXT.ta.straight, type: "straight" });
+            }
+          }
+
+          generated.push({ textEn: TXT.en.end, textTa: TXT.ta.end, type: "end" });
+          setSteps(generated);
+
+          const immediateInstruction = generated[0];
+          if (immediateInstruction) {
+            // Send English string up to parent so page.tsx can accurately translate and speak it dynamically
+            const textToSpeak = immediateInstruction.textEn; 
+            if (textToSpeak !== lastSpokenRef.current) {
+              onStepUpdate(textToSpeak);
+              lastSpokenRef.current = textToSpeak;
+            }
+          }
+        } else {
+          setErrorMessage(lang === "ta" ? "வழித்தடம் கிடைக்கவில்லை" : "No path route coordinates found.");
+        }
+      } catch (err) {
+        console.error("❌ Component Sync Failure:", err);
+        if (isMounted) {
+          setErrorMessage(lang === "ta" ? "இணைப்புப் பிழை ஏற்பட்டது" : "Server route sync failure.");
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    getRoute();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [parametersKey, lang, onPathUpdate, onStepUpdate]); 
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case "left": return <ArrowUpLeft className="text-blue-400" />;
+      case "right": return <ArrowUpRight className="text-blue-400" />;
+      case "end": return <CheckCircle2 className="text-emerald-500" />;
+      default: return <ArrowUp className="text-slate-400" />;
+    }
+  };
+
+  if (loading) return (
+    <div className="flex items-center gap-2 p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
+      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">
+        {lang === "ta" ? "வழித்தடம் கணக்கிடப்படுகிறது..." : "Calculating Path..."}
+      </span>
+    </div>
+  );
+
+  if (errorMessage) return (
+    <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-center">
+      <p className="text-xs text-red-400 font-semibold">{errorMessage}</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3 max-h-[280px] overflow-y-auto pr-2 custom-scrollbar pb-10">
+      {steps.length === 0 && (
+        <p className="text-slate-500 text-xs italic text-center p-4">
+          {lang === "ta" ? "வழிமுறைகளைக் காண ஒரு QR குறியீட்டை ஸ்கேன் செய்யவும்" : "Scan a QR to see steps"}
+        </p>
+      )}
+      {steps.map((step, i) => {
+        const isCurrentActiveStep = i === 0;
+        return (
+          <div 
+            key={i} 
+            onClick={() => {
+              // Trigger English base values on click so parent engine can map dictionary assets cleanly
+              onStepUpdate(step.textEn);
+            }}
+            className={`flex items-center gap-4 p-4 rounded-2xl transition-all duration-500 cursor-pointer ${
+              isCurrentActiveStep 
+                ? "bg-blue-600 shadow-lg shadow-blue-900/40 scale-[1.02]" 
+                : "bg-white/5 opacity-40 hover:opacity-70"
+            }`}
+          >
+            <div className={`p-2 rounded-xl ${isCurrentActiveStep ? "bg-white/20" : "bg-slate-800"}`}>
+              {getIcon(step.type)}
+            </div>
+            <div>
+              <p className={`text-sm font-bold ${isCurrentActiveStep ? "text-white" : "text-slate-300"}`}>
+                {lang === "en" ? step.textEn : step.textTa}
+              </p>
+              {isCurrentActiveStep && (
+                <p className="text-[9px] text-blue-100 uppercase font-black mt-0.5 opacity-80">
+                  {lang === "ta" ? `வழிமுறை ${i + 1}` : `Instruction ${i + 1}`}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+</file>
+
 <file path="backend/src/app/api/navigation/shortest-path/route.ts">
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+
+/* ---------------- CORS ---------------- */
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+/* ---------------- OPTIONS HANDLER ---------------- */
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      status: 200,
+      headers: corsHeaders,
+    }
+  );
+}
 
 /* ---------------- Types ---------------- */
 type GraphPOI = {
@@ -11215,7 +11431,12 @@ type Edge = {
 };
 
 /* ---------------- DIJKSTRA ---------------- */
-function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
+function dijkstra(
+  nodes: string[],
+  edges: Edge[],
+  start: string,
+  end: string
+) {
   const dist: Record<string, number> = {};
   const prev: Record<string, string | null> = {};
   const unvisited = new Set(nodes);
@@ -11233,6 +11454,7 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
     );
 
     if (current === end) break;
+
     unvisited.delete(current);
 
     const neighbors = edges.filter(
@@ -11241,6 +11463,7 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
 
     for (const edge of neighbors) {
       const next = edge.from === current ? edge.to : edge.from;
+
       if (!unvisited.has(next)) continue;
 
       const alt = dist[current] + edge.weight;
@@ -11266,18 +11489,25 @@ function dijkstra(nodes: string[], edges: Edge[], start: string, end: string) {
 /* ---------------- API ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    const { hospitalId, floorId, startNodeId, endNodeId } = await req.json();
+    const { hospitalId, floorId, startNodeId, endNodeId } =
+      await req.json();
 
     const floor = await prisma.floor.findFirst({
       where: {
         hospitalId,
-        OR: [{ level: Number(floorId) }, { id: floorId }]
+        OR: [{ level: Number(floorId) }, { id: floorId }],
       },
-      select: { graphData: true }
+      select: { graphData: true },
     });
 
     if (!floor?.graphData) {
-      return NextResponse.json({ error: "Map not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Map not found" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
     }
 
     const graph = floor.graphData as unknown as GraphData;
@@ -11287,27 +11517,42 @@ export async function POST(req: NextRequest) {
     const edges: Edge[] = graph.routes.map((r) => ({
       from: r.from,
       to: r.to,
-      weight: Number(r.distance) || 1
+      weight: Number(r.distance) || 1,
     }));
 
-    const pathIds = dijkstra(nodes, edges, startNodeId, endNodeId);
+    const pathIds = dijkstra(
+      nodes,
+      edges,
+      startNodeId,
+      endNodeId
+    );
 
     if (!pathIds) {
-      return NextResponse.json({ error: "No path found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No path found" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
     }
 
     /* ✅ CONVERT NODE → COORDS */
     const path = pathIds.map((id) => {
-      const p = graph.pointsOfInterest.find((poi) => poi.nodeId === id);
+      const p = graph.pointsOfInterest.find(
+        (poi) => poi.nodeId === id
+      );
+
       return {
         nodeId: id,
         x: Number(p?.x) || 0,
-        y: Number(p?.y) || 0
+        y: Number(p?.y) || 0,
       };
     });
 
     /* ✅ TOTAL DISTANCE */
     let totalDistance = 0;
+
     for (let i = 0; i < path.length - 1; i++) {
       totalDistance += Math.hypot(
         path[i + 1].x - path[i].x,
@@ -11315,14 +11560,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      path,
-      distance: totalDistance
-    });
-
+    return NextResponse.json(
+      {
+        path,
+        distance: totalDistance,
+      },
+      {
+        headers: corsHeaders,
+      }
+    );
   } catch (err) {
     console.error("Navigation Error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+
+    return NextResponse.json(
+      { error: "Server error" },
+      {
+        status: 500,
+        headers: corsHeaders,
+      }
+    );
   }
 }
 </file>
@@ -11564,6 +11820,78 @@ export default function NavigatePage() {
     </main>
   );
 }
+</file>
+
+<file path="frontend/middleware.ts">
+"use clients";
+
+import { NextRequest, NextResponse } from "next/server";
+
+const PUBLIC_PATHS = ["/login", "/signup", "/pricing", "/"];
+
+export function middleware(req: NextRequest) {
+  const { pathname, search } = req.nextUrl;
+
+  // 🧠 DEBUG LOGS (check in Vercel logs)
+  console.log("---- MIDDLEWARE START ----");
+  console.log("PATH:", pathname);
+  console.log("SEARCH:", search);
+
+  const token = req.cookies.get("auth-token")?.value;
+  console.log("TOKEN:", token ? "✅ EXISTS" : "❌ MISSING");
+
+  // 1. Skip static & internal routes
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api") ||
+    pathname.includes(".")
+  ) {
+    console.log("⏭️ Skipping static/internal route");
+    return NextResponse.next();
+  }
+
+  // 2. Prevent logged-in users from visiting login/signup
+  if (token && (pathname === "/login" || pathname === "/signup")) {
+    console.log("🔁 Redirecting logged-in user → /upload");
+
+    const res = NextResponse.redirect(new URL("/upload", req.url));
+    res.headers.set("Cache-Control", "no-store"); // 🚫 prevent cache
+    return res;
+  }
+
+  // 3. Allow public routes
+  const isPublic = PUBLIC_PATHS.includes(pathname);
+
+  if (isPublic) {
+    console.log("🌐 सार्वजनिक route allowed");
+    const res = NextResponse.next();
+    res.headers.set("Cache-Control", "no-store");
+    return res;
+  }
+
+  // 4. Protect private routes
+  if (!token) {
+    console.log("🚫 No token → redirecting to login");
+
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("redirect", pathname);
+
+    const res = NextResponse.redirect(loginUrl);
+    res.headers.set("Cache-Control", "no-store");
+    return res;
+  }
+
+  // 5. Allow authenticated access
+  console.log("✅ Authenticated → allowing access");
+
+  const res = NextResponse.next();
+  res.headers.set("Cache-Control", "no-store"); // 🚫 prevent 304 cache
+  return res;
+}
+
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+};
 </file>
 
 </files>

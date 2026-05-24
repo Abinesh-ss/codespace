@@ -73,9 +73,9 @@ export default function Pricing() {
           <div className="flex justify-between items-center h-16">
             <Link href="/" className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">HN</span>
+                <span className="text-white font-bold">VZ</span>
               </div>
-              <span className="text-xl font-bold text-gray-900">HospiNav Pro</span>
+              <span className="text-xl font-bold text-gray-900">Vazhikatti</span>
             </Link>
             <div className="hidden md:flex items-center space-x-8">
               <Link href="/" className="text-gray-600 hover:text-indigo-600 transition">Home</Link>
@@ -225,7 +225,7 @@ export default function Pricing() {
             Ready to Transform Your Facility Navigation?
           </h2>
           <p className="text-xl text-indigo-200 mb-8">
-            Join hundreds of healthcare facilities using HospiNav Pro to deliver exceptional wayfinding experiences.
+            Join hundreds of healthcare facilities using Pro to deliver exceptional wayfinding experiences.
           </p>
           <Link
             href="/login"
@@ -242,12 +242,12 @@ export default function Pricing() {
         <div className="max-w-7xl mx-auto text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">HN</span>
+              <span className="text-white font-bold">VZ</span>
             </div>
-            <span className="text-xl font-bold text-white">HospiNav Pro</span>
+            <span className="text-xl font-bold text-white">Vazhikatti</span>
           </div>
           <p className="text-gray-400">
-            © {new Date().getFullYear()} HospiNav Pro. All rights reserved.
+            © {new Date().getFullYear()} Vazhikatti. All rights reserved.
           </p>
         </div>
       </footer>

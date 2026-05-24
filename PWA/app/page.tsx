@@ -482,7 +482,6 @@ function NavigationRuntime() {
     </main>
   );
 }
-
 export default function NavigatePage() {
   return (
     <Suspense fallback={

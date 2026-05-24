@@ -82,41 +82,10 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // =========================
-    // AUTO CREATE FOR NEW USER
-    // =========================
-    if (!hospital) {
-      hospital = await prisma.hospital.create({
-        data: {
-          createdByUser: payload.userId,
-
-          // Required fields
-          name: "New Hospital",
-          address: "Not Set",
-          country: "India",
-          region: "TAMIL_NADU",
-          subscriptionStatus: "FREE",
-        },
-
-        include: {
-          _count: {
-            select: {
-              maps: true,
-              floors: true,
-              analyticsEvents: true,
-            },
-          },
-
-          analyticsEvents: {
-            take: 5,
-
-            orderBy: {
-              createdAt: "desc",
-            },
-          },
-        },
-      });
+       if (!hospital) {
+      return cors(NextResponse.json({ error: "No hospital found" }, { status: 404 }));
     }
+
 
     // =========================
     // LAST 7 DAYS ANALYTICS

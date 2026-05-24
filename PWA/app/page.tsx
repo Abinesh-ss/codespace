@@ -11,7 +11,7 @@ import NavigationSteps from "@/components/NavigationSteps";
 
 // ✅ Explicit API Base URL mapping targeting your port 3000 database server
 const BACKEND_API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000";
 
 // Complete English to Tamil Translation Dictionary Map
 const translations: { [key: string]: string } = {

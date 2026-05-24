@@ -3,7 +3,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation"; // Use Next.js router
 import Layout from "@/components/Layout";
-import DesktopOnly from "@/components/DesktopOnly";
 import {
   MapPin,
   Plus,

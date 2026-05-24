@@ -1,164 +1,83 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import jsQR from "jsqr";
-import { CameraOff, RefreshCw } from "lucide-react";
+import React, { useState } from 'react';
+import { CameraScanner } from './CameraScanner';
 
-interface Props {
-  onDetect: (data: string) => void;
+interface QRAnchorScannerProps {
+  onAnchorCalibrated: (anchorData: { nodeId: string; x: number; y: number; name: string }) => void;
+  onClose: () => void;
 }
 
-export default function QRAnchorScanner({ onDetect }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastScanRef = useRef<string | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  
-  // Use a ref to track if we should stop scanning (to prevent background processing)
-  const isScanningRef = useRef(true);
-
+export const QRAnchorScanner: React.FC<QRAnchorScannerProps> = ({ onAnchorCalibrated, onClose }) => {
   const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
+  const [processing, setProcessing] = useState(false);
 
-  /* ---------------- SCAN LOOP ---------------- */
-  const scan = () => {
-    if (!isScanningRef.current) return; // STOP the loop if triggered elsewhere
+  const handleScanSuccess = async (scannedText: string) => {
+    if (processing) return;
+    setProcessing(true);
+    setError(null);
 
-    const video = videoRef.current;
-
-    if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
-      if (!canvasRef.current) canvasRef.current = document.createElement("canvas");
-
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(img.data, img.width, img.height);
-
-        if (code?.data) {
-          if (code.data !== lastScanRef.current) {
-            console.log("✅ QR DETECTED:", code.data);
-
-            lastScanRef.current = code.data;
-            
-            // Immediately signal to stop the loop before notifying the parent
-            isScanningRef.current = false; 
-            onDetect(code.data);
-
-            /* cooldown to allow future scans if parent doesn't unmount */
-            setTimeout(() => {
-              lastScanRef.current = null;
-              isScanningRef.current = true;
-            }, 3000);
-          }
-        }
+    try {
+      let parsedData;
+      if (scannedText.startsWith('{')) {
+        parsedData = JSON.parse(scannedText);
+      } else {
+        const urlParams = new URLSearchParams(scannedText.split('?')[1]);
+        parsedData = {
+          nodeId: urlParams.get('nodeId'),
+          x: urlParams.get('x'),
+          y: urlParams.get('y'),
+          name: urlParams.get('name') || 'QR Anchor Point',
+        };
       }
-    }
 
-    if (isScanningRef.current) {
-      rafRef.current = requestAnimationFrame(scan);
+      if (!parsedData.nodeId || parsedData.x === undefined || parsedData.y === undefined) {
+        throw new Error('Invalid QR structure. Missing nodeId or coordinates.');
+      }
+
+      onAnchorCalibrated({
+        nodeId: parsedData.nodeId,
+        x: Number(parsedData.x),
+        y: Number(parsedData.y),
+        name: parsedData.name,
+      });
+    } catch (err: any) {
+      console.error('Calibration scan failed:', err);
+      setError(err.message || 'Failed to sync location via this QR code.');
+      setProcessing(false);
     }
   };
 
-  /* ---------------- CAMERA ---------------- */
-  useEffect(() => {
-    let mounted = true;
-    isScanningRef.current = true;
-
-    const start = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }
-        });
-
-        if (!mounted) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          // Use then/catch for play() to handle browsers that block auto-play
-          videoRef.current.play().then(() => {
-            scan();
-          }).catch(e => console.error("Video play failed:", e));
-        }
-      } catch (err) {
-        console.error(err);
-        setError("Camera permission denied or not found");
-      }
-    };
-
-    start();
-
-    return () => {
-      mounted = false;
-      isScanningRef.current = false; // Kill the scan loop
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [retryKey]);
-
   return (
-    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
-      {error ? (
-        <div className="text-center p-6">
-          <CameraOff className="text-red-500 mx-auto mb-4" size={48} />
-          <p className="text-sm text-slate-400 mb-6">{error}</p>
-          <button
-            onClick={() => setRetryKey((k) => k + 1)}
-            className="bg-blue-600 px-6 py-3 rounded-xl flex items-center gap-2 mx-auto active:scale-95 transition-transform"
-          >
-            <RefreshCw size={18} /> Retry Camera
-          </button>
+    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col justify-between p-4 text-white animate-fade-in">
+      <div className="flex justify-between items-center py-2 border-b border-white/10">
+        <div>
+          <h2 className="text-lg font-bold">Scan Calibration QR</h2>
+          <p className="text-xs text-gray-400">Align with any posted QR to clear drift</p>
         </div>
-      ) : (
-        <>
-          <video 
-            ref={videoRef} 
-            className="w-full h-full object-cover" 
-            muted 
-            playsInline 
-          />
+        <button onClick={onClose} className="p-2 bg-white/15 rounded-full text-sm font-semibold hover:bg-white/20 transition-all">
+          ✕ Close
+        </button>
+      </div>
 
-          {/* Scanner UI Overlay */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <div className="w-64 h-64 border-2 border-white/30 rounded-3xl relative">
-              {/* Corner Accents */}
-              <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-xl" />
-              <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-xl" />
-              <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-xl" />
-              <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-xl" />
-              
-              {/* Scanning Bar Animation */}
-              <div className="w-full h-1 bg-blue-500/50 absolute top-0 animate-[scan_2s_linear_infinite]" 
-                   style={{ boxShadow: '0 0 15px 2px rgba(59,130,246,0.8)' }} />
-            </div>
+      <div className="relative flex-1 max-h-[60vh] my-4 rounded-xl overflow-hidden border border-white/20">
+        <CameraScanner onScan={handleScanSuccess} />
+        <div className="absolute inset-0 pointer-events-none border-4 border-emerald-500/40 m-12 rounded-lg animate-pulse" />
+      </div>
 
-            <p className="mt-12 text-sm font-medium text-white bg-black/40 backdrop-blur-md px-6 py-2 rounded-full border border-white/10">
-              Align QR code within frame
-            </p>
+      <div className="p-4 bg-white/5 rounded-xl border border-white/10 mb-2">
+        {error ? (
+          <div className="text-red-400 text-center text-sm font-medium">{error}</div>
+        ) : processing ? (
+          <div className="text-emerald-400 text-center text-sm font-medium animate-pulse">
+            Calibrating dead-reckoning alignment matrix...
           </div>
-        </>
-      )}
-
-      {/* Animation Styles */}
-      <style jsx>{`
-        @keyframes scan {
-          0% { top: 0; }
-          50% { top: 100%; }
-          100% { top: 0; }
-        }
-      `}</style>
+        ) : (
+          <p className="text-xs text-gray-300 text-center leading-relaxed">
+            Positioning will latch onto this exact spot, recalibrating device accelerometer drift parameters.
+          </p>
+        )}
+      </div>
     </div>
   );
-}
+};

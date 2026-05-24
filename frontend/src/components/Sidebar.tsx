@@ -6,7 +6,6 @@ export default function Sidebar() {
       <Link href="/dashboard" className="hover:text-indigo-500">Overview</Link>
       <Link href="/upload" className="hover:text-indigo-500">Map Upload</Link>
       <Link href="/editor" className="hover:text-indigo-500">Editor</Link>
-      <Link href="/navigate" className="hover:text-indigo-500">Navigate</Link>
       <Link href="/qr" className="hover:text-indigo-500">QR Codes</Link>
       <Link href="/login" className="hover:text-indigo-500">Settings</Link>
     </aside>

@@ -70,6 +70,8 @@ function dijkstra(
       dist[a] < dist[b] ? a : b
     );
 
+    if (!current || dist[current] === Infinity) break;
+
     if (current === end) break;
 
     unvisited.delete(current);
@@ -132,30 +134,21 @@ export async function POST(req: NextRequest) {
     if (!hospitalId) {
       return NextResponse.json(
         { error: "hospitalId required" },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
+        { status: 400, headers: corsHeaders }
       );
     }
 
     if (!floorId) {
       return NextResponse.json(
         { error: "floorId required" },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
+        { status: 400, headers: corsHeaders }
       );
     }
 
     if (!startNodeId || !endNodeId) {
       return NextResponse.json(
         { error: "startNodeId and endNodeId required" },
-        {
-          status: 400,
-          headers: corsHeaders,
-        }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -178,10 +171,7 @@ export async function POST(req: NextRequest) {
     if (!floor?.graphData) {
       return NextResponse.json(
         { error: "Map not found" },
-        {
-          status: 404,
-          headers: corsHeaders,
-        }
+        { status: 404, headers: corsHeaders }
       );
     }
 
@@ -194,20 +184,17 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Invalid POI data" },
-        {
-          status: 500,
-          headers: corsHeaders,
-        }
+        { status: 500, headers: corsHeaders }
       );
     }
 
-    if (!graph.routes || !Array.isArray(graph.routes)) {
+    if (
+      !graph.routes ||
+      !Array.isArray(graph.routes)
+    ) {
       return NextResponse.json(
         { error: "Invalid route data" },
-        {
-          status: 500,
-          headers: corsHeaders,
-        }
+        { status: 500, headers: corsHeaders }
       );
     }
 
@@ -226,20 +213,14 @@ export async function POST(req: NextRequest) {
     if (!nodes.includes(startNodeId)) {
       return NextResponse.json(
         { error: "Invalid start node" },
-        {
-          status: 404,
-          headers: corsHeaders,
-        }
+        { status: 404, headers: corsHeaders }
       );
     }
 
     if (!nodes.includes(endNodeId)) {
       return NextResponse.json(
         { error: "Invalid destination node" },
-        {
-          status: 404,
-          headers: corsHeaders,
-        }
+        { status: 404, headers: corsHeaders }
       );
     }
 
@@ -254,10 +235,7 @@ export async function POST(req: NextRequest) {
     if (!pathIds) {
       return NextResponse.json(
         { error: "No path found" },
-        {
-          status: 404,
-          headers: corsHeaders,
-        }
+        { status: 404, headers: corsHeaders }
       );
     }
 

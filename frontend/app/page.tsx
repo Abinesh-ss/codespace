@@ -46,8 +46,8 @@ export default function Home() {
 
       <section className="py-16 bg-indigo-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8 text-center text-white">
-          <div><div className="text-3xl font-bold mb-2">500+</div>Facilities Optimized</div>
-          <div><div className="text-3xl font-bold mb-2">2M+</div>Navigation Points Mapped</div>
+          <div><div className="text-3xl font-bold mb-2">5+</div>Facilities Optimized</div>
+          <div><div className="text-3xl font-bold mb-2">50+</div>Navigation Points Mapped</div>
           <div><div className="text-3xl font-bold mb-2">99.9%</div>Accuracy Rate</div>
           <div><div className="text-3xl font-bold mb-2">24/7</div>System Uptime</div>
         </div>
@@ -66,7 +66,7 @@ export default function Home() {
               <MapPin className="w-6 h-6 text-indigo-600" />
             </div>
             <h3 className="text-xl font-semibold text-gray-900 mb-4">Smart Map Validation</h3>
-            <p className="text-gray-600">Automatically validate floor plans for navigation accuracy, identify bottlenecks, and optimize routing paths.</p>
+            <p className="text-gray-600">validate floor plans for navigation accuracy, identify bottlenecks, and optimize routing paths.</p>
           </div>
           <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
             <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-6">
@@ -140,14 +140,6 @@ export default function Home() {
               <li><Link href="#" className="hover:text-white transition">About</Link></li>
               <li><Link href="#" className="hover:text-white transition">Blog</Link></li>
               <li><Link href="#" className="hover:text-white transition">Contact</Link></li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="text-white font-semibold mb-4">Support</h4>
-            <ul className="space-y-2">
-              <li><Link href="#" className="hover:text-white transition">Documentation</Link></li>
-              <li><Link href="#" className="hover:text-white transition">API Reference</Link></li>
-              <li><Link href="#" className="hover:text-white transition">Status</Link></li>
             </ul>
           </div>
         </div>

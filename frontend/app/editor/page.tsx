@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation"; // Use Next.js router
 import Layout from "@/components/Layout";
+import DesktopOnly from "@/components/DesktopOnly";
 import {
   MapPin,
   Plus,
@@ -13,6 +14,14 @@ import {
   Zap,
   Loader2,
 } from "lucide-react";
+
+export default function UploadPage() {
+  return (
+    <DesktopOnly>
+      <YourUploadComponent />
+    </DesktopOnly>
+  );
+}
 
 /* ---------- TYPES ---------- */
 interface POI {
@@ -60,6 +69,14 @@ function validateGraph(pois: POI[], routes: Route[]): string[] {
     }
   }
   return errors;
+}
+
+export default function UploadPage() {
+  return (
+    <DesktopOnly>
+      <YourUploadComponent />
+    </DesktopOnly>
+  );
 }
 
 export default function Editor() {

@@ -59,8 +59,8 @@ function validateGraph(pois: POI[], routes: Route[]): string[] {
   }
 
   for (const route of routes) {
-    const from = pois.find((p) => p.nodeId === route.fromId);
-    const to = pois.find((p) => p.nodeId === route.toId);
+    const from = pois.find((p) => p.nodeId === route.from);
+    const to = pois.find((p) => p.nodeId === route.to);
 
     if (!from || !to) {
       errors.push("Route has missing node");

@@ -15,14 +15,6 @@ import {
   Loader2,
 } from "lucide-react";
 
-export default function UploadPage() {
-  return (
-    <DesktopOnly>
-      <YourUploadComponent />
-    </DesktopOnly>
-  );
-}
-
 /* ---------- TYPES ---------- */
 interface POI {
   id: number;

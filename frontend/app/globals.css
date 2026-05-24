@@ -2,3 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 body { @apply bg-gray-50; }
+/* By default, hide the mobile warning block screen on desktop layout widths */
+.mobile-blocker-screen {
+  display: none;
+}
+
+/* When the screen width drops below 1024px (Large Mobile & Tablets) */
+@media (max-width: 1023px) {
+  /* Completely hide the actual website app content */
+  .desktop-content {
+    display: none !important;
+  }
+
+  /* Force display the block screen to take up the full viewport */
+  .mobile-blocker-screen {
+    display: flex !important;
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background-color: #f8fafc; /* Tailwind's bg-slate-50 */
+    align-items: center;
+    justify-content: center;
+  }
+}

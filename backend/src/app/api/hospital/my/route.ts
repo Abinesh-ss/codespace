@@ -56,12 +56,13 @@ export async function GET(req: NextRequest) {
     }
 
     // =========================
-    // GET OR CREATE HOSPITAL
+    // GET EXISTING HOSPITAL
     // =========================
     let hospital = await prisma.hospital.findFirst({
       where: {
         createdByUser: payload.userId,
       },
+
       include: {
         _count: {
           select: {
@@ -70,8 +71,10 @@ export async function GET(req: NextRequest) {
             analyticsEvents: true,
           },
         },
+
         analyticsEvents: {
           take: 5,
+
           orderBy: {
             createdAt: "desc",
           },
@@ -79,14 +82,20 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Auto-create hospital for new users
+    // =========================
+    // AUTO CREATE FOR NEW USER
+    // =========================
     if (!hospital) {
       hospital = await prisma.hospital.create({
         data: {
           createdByUser: payload.userId,
 
-          // Default values
+          // Required fields
           name: "New Hospital",
+          address: "Not Set",
+          country: "India",
+          region: "TAMIL_NADU",
+          subscriptionStatus: "FREE",
         },
 
         include: {
@@ -100,6 +109,7 @@ export async function GET(req: NextRequest) {
 
           analyticsEvents: {
             take: 5,
+
             orderBy: {
               createdAt: "desc",
             },
@@ -109,7 +119,7 @@ export async function GET(req: NextRequest) {
     }
 
     // =========================
-    // CHART DATA
+    // LAST 7 DAYS ANALYTICS
     // =========================
     const sevenDaysAgo = new Date();
 
@@ -121,6 +131,7 @@ export async function GET(req: NextRequest) {
       await prisma.analyticsEvent.findMany({
         where: {
           hospitalId: hospital.id,
+
           createdAt: {
             gte: sevenDaysAgo,
           },
@@ -131,8 +142,13 @@ export async function GET(req: NextRequest) {
         },
       });
 
-    // Group by weekday
-    const dayCounts: Record<string, number> = {};
+    // =========================
+    // GROUP EVENTS BY DAY
+    // =========================
+    const dayCounts: Record<
+      string,
+      number
+    > = {};
 
     recentEvents.forEach((event) => {
       const dayName = new Date(
@@ -160,13 +176,15 @@ export async function GET(req: NextRequest) {
         ...hospital,
 
         metrics: {
-          activeMaps: hospital._count.maps,
+          activeMaps:
+            hospital._count.maps,
 
           activeFloors:
             hospital._count.floors,
 
           totalSessions:
-            hospital._count.analyticsEvents,
+            hospital._count
+              .analyticsEvents,
 
           recentActivity:
             hospital.analyticsEvents.map(

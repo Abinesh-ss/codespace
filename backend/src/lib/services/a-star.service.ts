@@ -1,4 +1,126 @@
-import { Graph, Node, PathResult } from '@/types';
+import { MapNode, MapEdge } from '../../../../PWA/lib/types';
+
+interface GraphJson {
+  nodes?: MapNode[];
+  edges?: MapEdge[];
+  pointsOfInterest?: any[];
+}
+
+export class AStarService {
+  /**
+   * Primary weight calculation heuristic: Straight-line physical Euclidean distance
+   */
+  private static getDistance(n1: MapNode, n2: MapNode): number {
+    return Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
+  }
+
+  /**
+   * Solves shortest path routing map using structural matrix arrays
+   */
+  public static calculatePath(graphData: any, startNodeId: string, endNodeId: string): MapNode[] {
+    const graph = graphData as GraphJson;
+    const nodes = graph.nodes || [];
+    const edges = graph.edges || [];
+
+    // Map out matching cross-references for POI nodes if nodeId is hidden inside pointsOfInterest array
+    const pois = graph.pointsOfInterest || [];
+    const mergedNodes: MapNode[] = [...nodes];
+    
+    pois.forEach((poi) => {
+      if (poi.nodeId && !mergedNodes.some(n => n.id === poi.nodeId)) {
+        mergedNodes.push({
+          id: poi.nodeId,
+          type: poi.type || 'room',
+          x: poi.x,
+          y: poi.y,
+          name: poi.name
+        });
+      }
+    });
+
+    const startNode = mergedNodes.find((n) => n.id === startNodeId);
+    const endNode = mergedNodes.find((n) => n.id === endNodeId);
+
+    if (!startNode || !endNode) {
+      console.warn(`A* Routing aborting: Start node (${startNodeId}) or End node (${endNodeId}) missing in floor data graph.`);
+      return [];
+    }
+
+    const openSet: string[] = [startNode.id];
+    const cameFrom: Record<string, string> = {};
+
+    const gScore: Record<string, number> = {};
+    const fScore: Record<string, number> = {};
+
+    mergedNodes.forEach((n) => {
+      gScore[n.id] = Infinity;
+      fScore[n.id] = Infinity;
+    });
+
+    gScore[startNode.id] = 0;
+    fScore[startNode.id] = this.getDistance(startNode, endNode);
+
+    while (openSet.length > 0) {
+      // Find node with lowest predicted path line value
+      let currentId = openSet[0];
+      let lowestF = fScore[currentId];
+
+      for (let i = 1; i < openSet.length; i++) {
+        const id = openSet[i];
+        if (fScore[id] < lowestF) {
+          lowestF = fScore[id];
+          currentId = id;
+        }
+      }
+
+      if (currentId === endNode.id) {
+        // Build the physical structured sequential corridor nodes
+        const path: MapNode[] = [];
+        let curr: string | undefined = currentId;
+        while (curr) {
+          const matchNode = mergedNodes.find((n) => n.id === curr);
+          if (matchNode) path.unshift(matchNode);
+          curr = cameFrom[curr];
+        }
+        return path;
+      }
+
+      // Evict current node from evaluation array
+      const idx = openSet.indexOf(currentId);
+      if (idx > -1) openSet.splice(idx, 1);
+
+      // Evaluate edge routes that originate from or terminate at the current checkpoint
+      const neighbors = edges
+        .filter((e) => e.fromNodeId === currentId || e.toNodeId === currentId)
+        .map((e) => (e.fromNodeId === currentId ? e.toNodeId : e.fromNodeId));
+
+      for (const neighborId of neighbors) {
+        const neighborNode = mergedNodes.find((n) => n.id === neighborId);
+        if (!neighborNode) continue;
+
+        const edgeWeight = edges.find(
+          (e) =>
+            (e.fromNodeId === currentId && e.toNodeId === neighborId) ||
+            (e.fromNodeId === neighborId && e.toNodeId === currentId)
+        )?.distance || this.getDistance(mergedNodes.find(n => n.id === currentId)!, neighborNode);
+
+        const tentativeGScore = gScore[currentId] + edgeWeight;
+
+        if (tentativeGScore < gScore[neighborId]) {
+          cameFrom[neighborId] = currentId;
+          gScore[neighborId] = tentativeGScore;
+          fScore[neighborId] = tentativeGScore + this.getDistance(neighborNode, endNode);
+
+          if (!openSet.includes(neighborId)) {
+            openSet.push(neighborId);
+          }
+        }
+      }
+    }
+
+    return []; // No viable continuous connection pathway exists
+  }
+}import { Graph, Node, PathResult } from '@/types';
 
 class PriorityQueue<T> {
   private items: { item: T; priority: number }[] = [];

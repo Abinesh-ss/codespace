@@ -204,8 +204,8 @@ export async function POST(req: NextRequest) {
     );
 
     const edges: Edge[] = graph.routes.map((route) => ({
-      from: route.from,
-      to: route.to,
+      from: route.from || route.fromId,
+      to: route.to || route.toId,
       weight: Number(route.distance) || 1,
     }));
 

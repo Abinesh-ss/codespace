@@ -19,18 +19,21 @@ export async function OPTIONS() {
   );
 }
 
-/* ---------------- Types ---------------- */
+/* ---------------- TYPES ---------------- */
 type GraphPOI = {
   nodeId: string;
   x: number;
   y: number;
   name?: string;
+  type?: string;
+  floorId?: string;
 };
 
 type GraphRoute = {
   from: string;
   to: string;
   distance: number;
+  floorId?: string;
 };
 
 type GraphData = {
@@ -55,14 +58,14 @@ function dijkstra(
   const prev: Record<string, string | null> = {};
   const unvisited = new Set(nodes);
 
-  nodes.forEach((n) => {
-    dist[n] = Infinity;
-    prev[n] = null;
+  nodes.forEach((node) => {
+    dist[node] = Infinity;
+    prev[node] = null;
   });
 
   dist[start] = 0;
 
-  while (unvisited.size) {
+  while (unvisited.size > 0) {
     const current = [...unvisited].reduce((a, b) =>
       dist[a] < dist[b] ? a : b
     );
@@ -72,7 +75,7 @@ function dijkstra(
     unvisited.delete(current);
 
     const neighbors = edges.filter(
-      (e) => e.from === current || e.to === current
+      (edge) => edge.from === current || edge.to === current
     );
 
     for (const edge of neighbors) {
@@ -100,18 +103,76 @@ function dijkstra(
   return path[0] === start ? path : null;
 }
 
+/* ---------------- HELPERS ---------------- */
+function calculateRotation(
+  current: { x: number; y: number },
+  next: { x: number; y: number }
+) {
+  const dx = next.x - current.x;
+  const dy = next.y - current.y;
+
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+  return angle;
+}
+
 /* ---------------- API ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    const { hospitalId, floorId, startNodeId, endNodeId } =
-      await req.json();
+    const body = await req.json();
 
+    const {
+      hospitalId,
+      floorId,
+      startNodeId,
+      endNodeId,
+    } = body;
+
+    /* ---------------- VALIDATION ---------------- */
+    if (!hospitalId) {
+      return NextResponse.json(
+        { error: "hospitalId required" },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    if (!floorId) {
+      return NextResponse.json(
+        { error: "floorId required" },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    if (!startNodeId || !endNodeId) {
+      return NextResponse.json(
+        { error: "startNodeId and endNodeId required" },
+        {
+          status: 400,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    /* ---------------- GET FLOOR ---------------- */
     const floor = await prisma.floor.findFirst({
       where: {
         hospitalId,
-        OR: [{ level: Number(floorId) }, { id: floorId }],
+        OR: [
+          { level: Number(floorId) },
+          { id: floorId },
+        ],
       },
-      select: { graphData: true },
+      select: {
+        id: true,
+        level: true,
+        graphData: true,
+      },
     });
 
     if (!floor?.graphData) {
@@ -126,14 +187,63 @@ export async function POST(req: NextRequest) {
 
     const graph = floor.graphData as unknown as GraphData;
 
-    const nodes = graph.pointsOfInterest.map((p) => p.nodeId);
+    /* ---------------- SAFETY ---------------- */
+    if (
+      !graph.pointsOfInterest ||
+      !Array.isArray(graph.pointsOfInterest)
+    ) {
+      return NextResponse.json(
+        { error: "Invalid POI data" },
+        {
+          status: 500,
+          headers: corsHeaders,
+        }
+      );
+    }
 
-    const edges: Edge[] = graph.routes.map((r) => ({
-      from: r.from,
-      to: r.to,
-      weight: Number(r.distance) || 1,
+    if (!graph.routes || !Array.isArray(graph.routes)) {
+      return NextResponse.json(
+        { error: "Invalid route data" },
+        {
+          status: 500,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    /* ---------------- BUILD GRAPH ---------------- */
+    const nodes = graph.pointsOfInterest.map(
+      (poi) => poi.nodeId
+    );
+
+    const edges: Edge[] = graph.routes.map((route) => ({
+      from: route.from,
+      to: route.to,
+      weight: Number(route.distance) || 1,
     }));
 
+    /* ---------------- VALIDATE NODES ---------------- */
+    if (!nodes.includes(startNodeId)) {
+      return NextResponse.json(
+        { error: "Invalid start node" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    if (!nodes.includes(endNodeId)) {
+      return NextResponse.json(
+        { error: "Invalid destination node" },
+        {
+          status: 404,
+          headers: corsHeaders,
+        }
+      );
+    }
+
+    /* ---------------- FIND PATH ---------------- */
     const pathIds = dijkstra(
       nodes,
       edges,
@@ -151,20 +261,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /* ✅ CONVERT NODE → COORDS */
-    const path = pathIds.map((id) => {
-      const p = graph.pointsOfInterest.find(
-        (poi) => poi.nodeId === id
+    /* ---------------- NODE → FULL PATH ---------------- */
+    const path = pathIds.map((nodeId, index) => {
+      const poi = graph.pointsOfInterest.find(
+        (p) => p.nodeId === nodeId
       );
 
+      const nextPoi =
+        index < pathIds.length - 1
+          ? graph.pointsOfInterest.find(
+              (p) => p.nodeId === pathIds[index + 1]
+            )
+          : null;
+
       return {
-        nodeId: id,
-        x: Number(p?.x) || 0,
-        y: Number(p?.y) || 0,
+        nodeId,
+        name: poi?.name || "",
+        type: poi?.type || "general",
+        floorId: poi?.floorId || String(floor.level),
+        x: Number(poi?.x) || 0,
+        y: Number(poi?.y) || 0,
+        rotation:
+          nextPoi && poi
+            ? calculateRotation(
+                {
+                  x: Number(poi.x),
+                  y: Number(poi.y),
+                },
+                {
+                  x: Number(nextPoi.x),
+                  y: Number(nextPoi.y),
+                }
+              )
+            : 0,
       };
     });
 
-    /* ✅ TOTAL DISTANCE */
+    /* ---------------- TOTAL DISTANCE ---------------- */
     let totalDistance = 0;
 
     for (let i = 0; i < path.length - 1; i++) {
@@ -174,12 +307,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    /* ---------------- ETA ---------------- */
+    const walkingSpeed = 80;
+    const estimatedSeconds = Math.ceil(
+      totalDistance / walkingSpeed
+    );
+
+    /* ---------------- RESPONSE ---------------- */
     return NextResponse.json(
       {
+        success: true,
+
+        floor: {
+          id: floor.id,
+          level: floor.level,
+        },
+
         path,
-        distance: totalDistance,
+
+        summary: {
+          nodes: path.length,
+          distance: Math.round(totalDistance),
+          estimatedSeconds,
+        },
       },
       {
+        status: 200,
         headers: corsHeaders,
       }
     );
@@ -187,7 +340,9 @@ export async function POST(req: NextRequest) {
     console.error("Navigation Error:", err);
 
     return NextResponse.json(
-      { error: "Server error" },
+      {
+        error: "Server error",
+      },
       {
         status: 500,
         headers: corsHeaders,

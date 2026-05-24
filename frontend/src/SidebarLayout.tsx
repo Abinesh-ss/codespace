@@ -23,7 +23,7 @@ export default function SidebarLayout({
     <div className="min-h-screen flex bg-gray-50">
       {auth && (
         <aside className="w-64 bg-white border-r hidden md:block">
-          <div className="p-6 font-bold text-xl">HospiNav Pro</div>
+          <div className="p-6 font-bold text-xl">Vazhikatti</div>
           <nav className="px-4 space-y-2">
             <Link
               href="/dashboard"

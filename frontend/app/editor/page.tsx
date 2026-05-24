@@ -63,14 +63,6 @@ function validateGraph(pois: POI[], routes: Route[]): string[] {
   return errors;
 }
 
-export default function UploadPage() {
-  return (
-    <DesktopOnly>
-      <YourUploadComponent />
-    </DesktopOnly>
-  );
-}
-
 export default function Editor() {
   const router = useRouter(); // Initialize router
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);

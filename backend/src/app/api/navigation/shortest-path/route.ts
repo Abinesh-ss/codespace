@@ -1,4 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/db/index";
+import { AStarService } from "@/lib/services/a-star.service";
+
+function setCorsHeaders(res: NextResponse) {
+  res.headers.set("Access-Control-Allow-Origin", "*");
+  res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return res;
+}
+
+export async function OPTIONS() {
+  return setCorsHeaders(new NextResponse(null, { status: 204 }));
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const floorId = searchParams.get("floorId");
+    const startNodeId = searchParams.get("startNodeId");
+    const endNodeId = searchParams.get("endNodeId");
+
+    if (!floorId || !startNodeId || !endNodeId) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Missing parameters: floorId, startNodeId, and endNodeId are required" }, { status: 400 })
+      );
+    }
+
+    const floor = await prisma.floor.findUnique({
+      where: { id: floorId }
+    });
+
+    if (!floor) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Target floor record not found" }, { status: 404 })
+      );
+    }
+
+    // Run path calculation over graphData JSON data structure
+    const path = AStarService.calculatePath(floor.graphData, startNodeId, endNodeId);
+
+    if (path.length === 0) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "No connection route found between selected points" }, { status: 404 })
+      );
+    }
+
+    return setCorsHeaders(NextResponse.json({ success: true, path }));
+  } catch (error: any) {
+    console.error("SHORTEST_PATH_ROUTE_ERROR:", error);
+    return setCorsHeaders(
+      NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500 })
+    );
+  }
+}import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 /* ---------------- CORS ---------------- */

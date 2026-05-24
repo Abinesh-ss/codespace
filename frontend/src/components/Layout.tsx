@@ -49,7 +49,6 @@ export default function Layout({
           <NavLink href="/dashboard">Dashboard</NavLink>
           <NavLink href="/upload">Upload</NavLink>
           <NavLink href="/editor">Editor</NavLink>
-          <NavLink href="/navigate">Navigate</NavLink>
           <NavLink href="/qr-generator">QR</NavLink>
         </div>
 
@@ -80,7 +79,6 @@ export default function Layout({
             <MobileLink href="/dashboard">Dashboard</MobileLink>
             <MobileLink href="/upload">Upload</MobileLink>
             <MobileLink href="/editor">Editor</MobileLink>
-            <MobileLink href="/navigate">Navigate</MobileLink>
             <MobileLink href="/qr">QR</MobileLink>
 
             <button

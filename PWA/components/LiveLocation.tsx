@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapNode } from '../lib/types';
 
 interface LiveLocationProps {
@@ -43,7 +43,11 @@ export const LiveLocation: React.FC<LiveLocationProps> = ({
   const lastStepTime = useRef<number>(0);
   // Shared state references used in telemetry callbacks to prevent closures
   const stateRef = useRef({ heading, activePath, currentX: initialX, currentY: initialY });
+  
+  // State for the GPS coordinate readout
+  const [gpsPos, setGpsPos] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Sync prop changes into state references
   useEffect(() => {
     stateRef.current.heading = heading;
     stateRef.current.activePath = activePath;
@@ -54,6 +58,7 @@ export const LiveLocation: React.FC<LiveLocationProps> = ({
     stateRef.current.currentY = initialY;
   }, [initialX, initialY]);
 
+  // Hook 1: Device Sensors (Inertial Navigation & Compass)
   useEffect(() => {
     // Sensor Variables
     const stepThreshold = 1.35; // Acceleration force variance filter threshold
@@ -135,18 +140,12 @@ export const LiveLocation: React.FC<LiveLocationProps> = ({
     };
   }, [onPositionUpdate, setHeading]);
 
-  return null;
-};"use client";
-import { useEffect, useState } from "react";
-
-export default function LiveLocation() {
-  const [pos, setPos] = useState<{lat: number, lng: number} | null>(null);
-
+  // Hook 2: Background Geolocation (GPS coordinates text overlay)
   useEffect(() => {
     if (!navigator.geolocation) return;
 
     const id = navigator.geolocation.watchPosition(
-      p => setPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      p => setGpsPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
       () => {},
       { enableHighAccuracy: true }
     );
@@ -154,11 +153,17 @@ export default function LiveLocation() {
     return () => navigator.geolocation.clearWatch(id);
   }, []);
 
-  if (!pos) return <span className="text-xs text-slate-500">GPS...</span>;
+  // Return UI elements displaying backup GPS telemetry data strings if available
+  if (!gpsPos) {
+    return <span className="text-xs text-slate-500">GPS...</span>;
+  }
 
   return (
     <span className="text-xs text-slate-400">
-      📍 {pos.lat.toFixed(4)}, {pos.lng.toFixed(4)}
+      📍 {gpsPos.lat.toFixed(4)}, {gpsPos.lng.toFixed(4)}
     </span>
   );
-}
+};
+
+// Ensure default export is wired to match your import references elsewhere in the app
+export default LiveLocation;

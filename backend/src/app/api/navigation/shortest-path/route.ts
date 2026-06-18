@@ -2,75 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/index";
 import { AStarService } from "@/lib/services/a-star.service";
 
-function setCorsHeaders(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", "*");
-  res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  return res;
-}
-
-export async function OPTIONS() {
-  return setCorsHeaders(new NextResponse(null, { status: 204 }));
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const floorId = searchParams.get("floorId");
-    const startNodeId = searchParams.get("startNodeId");
-    const endNodeId = searchParams.get("endNodeId");
-
-    if (!floorId || !startNodeId || !endNodeId) {
-      return setCorsHeaders(
-        NextResponse.json({ error: "Missing parameters: floorId, startNodeId, and endNodeId are required" }, { status: 400 })
-      );
-    }
-
-    const floor = await prisma.floor.findUnique({
-      where: { id: floorId }
-    });
-
-    if (!floor) {
-      return setCorsHeaders(
-        NextResponse.json({ error: "Target floor record not found" }, { status: 404 })
-      );
-    }
-
-    // Run path calculation over graphData JSON data structure
-    const path = AStarService.calculatePath(floor.graphData, startNodeId, endNodeId);
-
-    if (path.length === 0) {
-      return setCorsHeaders(
-        NextResponse.json({ error: "No connection route found between selected points" }, { status: 404 })
-      );
-    }
-
-    return setCorsHeaders(NextResponse.json({ success: true, path }));
-  } catch (error: any) {
-    console.error("SHORTEST_PATH_ROUTE_ERROR:", error);
-    return setCorsHeaders(
-      NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500 })
-    );
-  }
-}import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-
-/* ---------------- CORS ---------------- */
+/* ---------------- GLOBAL CORS ---------------- */
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+function setCorsHeaders(res: NextResponse) {
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    res.headers.set(key, value);
+  });
+  return res;
+}
+
 /* ---------------- OPTIONS HANDLER ---------------- */
 export async function OPTIONS() {
-  return NextResponse.json(
-    {},
-    {
-      status: 200,
-      headers: corsHeaders,
-    }
-  );
+  return setCorsHeaders(new NextResponse(null, { status: 204 }));
 }
 
 /* ---------------- TYPES ---------------- */
@@ -172,7 +120,49 @@ function calculateRotation(
   return angle;
 }
 
-/* ---------------- API ---------------- */
+/* ---------------- GET HANDLER (A* Service) ---------------- */
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const floorId = searchParams.get("floorId");
+    const startNodeId = searchParams.get("startNodeId");
+    const endNodeId = searchParams.get("endNodeId");
+
+    if (!floorId || !startNodeId || !endNodeId) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Missing parameters: floorId, startNodeId, and endNodeId are required" }, { status: 400 })
+      );
+    }
+
+    const floor = await prisma.floor.findUnique({
+      where: { id: floorId }
+    });
+
+    if (!floor) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "Target floor record not found" }, { status: 404 })
+      );
+    }
+
+    // Run path calculation over graphData JSON data structure
+    const path = AStarService.calculatePath(floor.graphData, startNodeId, endNodeId);
+
+    if (path.length === 0) {
+      return setCorsHeaders(
+        NextResponse.json({ error: "No connection route found between selected points" }, { status: 404 })
+      );
+    }
+
+    return setCorsHeaders(NextResponse.json({ success: true, path }));
+  } catch (error: any) {
+    console.error("SHORTEST_PATH_ROUTE_ERROR:", error);
+    return setCorsHeaders(
+      NextResponse.json({ error: "Internal server error", details: error.message }, { status: 500 })
+    );
+  }
+}
+
+/* ---------------- POST HANDLER (Dijkstra) ---------------- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -186,23 +176,20 @@ export async function POST(req: NextRequest) {
 
     /* ---------------- VALIDATION ---------------- */
     if (!hospitalId) {
-      return NextResponse.json(
-        { error: "hospitalId required" },
-        { status: 400, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "hospitalId required" }, { status: 400 })
       );
     }
 
     if (!floorId) {
-      return NextResponse.json(
-        { error: "floorId required" },
-        { status: 400, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "floorId required" }, { status: 400 })
       );
     }
 
     if (!startNodeId || !endNodeId) {
-      return NextResponse.json(
-        { error: "startNodeId and endNodeId required" },
-        { status: 400, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "startNodeId and endNodeId required" }, { status: 400 })
       );
     }
 
@@ -223,9 +210,8 @@ export async function POST(req: NextRequest) {
     });
 
     if (!floor?.graphData) {
-      return NextResponse.json(
-        { error: "Map not found" },
-        { status: 404, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "Map not found" }, { status: 404 })
       );
     }
 
@@ -236,9 +222,8 @@ export async function POST(req: NextRequest) {
       !graph.pointsOfInterest ||
       !Array.isArray(graph.pointsOfInterest)
     ) {
-      return NextResponse.json(
-        { error: "Invalid POI data" },
-        { status: 500, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid POI data" }, { status: 500 })
       );
     }
 
@@ -246,9 +231,8 @@ export async function POST(req: NextRequest) {
       !graph.routes ||
       !Array.isArray(graph.routes)
     ) {
-      return NextResponse.json(
-        { error: "Invalid route data" },
-        { status: 500, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid route data" }, { status: 500 })
       );
     }
 
@@ -258,23 +242,21 @@ export async function POST(req: NextRequest) {
     );
 
     const edges: Edge[] = graph.routes.map((route) => ({
-      from: route.from || route.from,
-      to: route.to || route.to,
+      from: route.from,
+      to: route.to,
       weight: Number(route.distance) || 1,
     }));
 
     /* ---------------- VALIDATE NODES ---------------- */
     if (!nodes.includes(startNodeId)) {
-      return NextResponse.json(
-        { error: "Invalid start node" },
-        { status: 404, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid start node" }, { status: 404 })
       );
     }
 
     if (!nodes.includes(endNodeId)) {
-      return NextResponse.json(
-        { error: "Invalid destination node" },
-        { status: 404, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "Invalid destination node" }, { status: 404 })
       );
     }
 
@@ -287,9 +269,8 @@ export async function POST(req: NextRequest) {
     );
 
     if (!pathIds) {
-      return NextResponse.json(
-        { error: "No path found" },
-        { status: 404, headers: corsHeaders }
+      return setCorsHeaders(
+        NextResponse.json({ error: "No path found" }, { status: 404 })
       );
     }
 
@@ -346,39 +327,25 @@ export async function POST(req: NextRequest) {
     );
 
     /* ---------------- RESPONSE ---------------- */
-    return NextResponse.json(
-      {
+    return setCorsHeaders(
+      NextResponse.json({
         success: true,
-
         floor: {
           id: floor.id,
           level: floor.level,
         },
-
         path,
-
         summary: {
           nodes: path.length,
           distance: Math.round(totalDistance),
           estimatedSeconds,
         },
-      },
-      {
-        status: 200,
-        headers: corsHeaders,
-      }
+      }, { status: 200 })
     );
   } catch (err) {
     console.error("Navigation Error:", err);
-
-    return NextResponse.json(
-      {
-        error: "Server error",
-      },
-      {
-        status: 500,
-        headers: corsHeaders,
-      }
+    return setCorsHeaders(
+      NextResponse.json({ error: "Server error" }, { status: 500 })
     );
   }
 }

@@ -1,14 +1,21 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CameraScanner } from './CameraScanner';
+// Changed to a default import to fix your "CameraScanner is not exported from" warning
+import CameraScanner from './CameraScanner'; 
 
 interface QRAnchorScannerProps {
-  onAnchorCalibrated: (anchorData: { nodeId: string; x: number; y: number; name: string }) => void;
-  onClose: () => void;
+  onAnchorCalibrated?: (anchorData: { nodeId: string; x: number; y: number; name: string }) => void;
+  onClose?: () => void;
+  // Added to fix the "Type error: Property 'onDetect' does not exist" build error
+  onDetect?: (data: any) => void | Promise<void>; 
 }
 
-export const QRAnchorScanner: React.FC<QRAnchorScannerProps> = ({ onAnchorCalibrated, onClose }) => {
+export const QRAnchorScanner: React.FC<QRAnchorScannerProps> = ({ 
+  onAnchorCalibrated, 
+  onClose,
+  onDetect 
+}) => {
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
 
@@ -35,12 +42,21 @@ export const QRAnchorScanner: React.FC<QRAnchorScannerProps> = ({ onAnchorCalibr
         throw new Error('Invalid QR structure. Missing nodeId or coordinates.');
       }
 
-      onAnchorCalibrated({
+      const formattedData = {
         nodeId: parsedData.nodeId,
         x: Number(parsedData.x),
         y: Number(parsedData.y),
         name: parsedData.name,
-      });
+      };
+
+      // Triggers whichever prop callback your parent page is using
+      if (onAnchorCalibrated) {
+        onAnchorCalibrated(formattedData);
+      }
+      if (onDetect) {
+        await onDetect(formattedData);
+      }
+      
     } catch (err: any) {
       console.error('Calibration scan failed:', err);
       setError(err.message || 'Failed to sync location via this QR code.');

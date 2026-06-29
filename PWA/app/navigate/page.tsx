@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX } from "lucide-react";
 
-import QRAnchorScanner from "@/components/QRAnchorScanner";
+import { QRAnchorScanner } from "@/components/QRAnchorScanner";
 import Compass from "@/components/Compass";
 import FloorDetector from "@/components/FloorDetector";
 import MapOverlay from "@/components/MapOverlay";

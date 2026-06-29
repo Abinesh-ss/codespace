@@ -34,7 +34,7 @@ export default function Home() {
         <div className="p-6 border rounded-lg bg-white shadow-sm">
           <h2 className="font-semibold text-xl mb-2">Next.js App Router</h2>
           <p className="text-sm text-gray-500">
-            Layout and Page structure optimized for Render production builds.
+            Layout and Page structure optimized for production builds.
           </p>
         </div>
       </main>

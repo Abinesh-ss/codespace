@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef } from "react";
 
-export default function CameraScanner() {
+// Changed "export default" to "export const" to match your named imports
+export const CameraScanner = () => {
   const ref = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -15,4 +16,4 @@ export default function CameraScanner() {
   }, []);
 
   return <video ref={ref} style={{ width: "100%" }} />;
-}
+};

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 // Changed to a default import to fix your "CameraScanner is not exported from" warning
-import CameraScanner from './CameraScanner'; 
+import { CameraScanner } from './CameraScanner'; 
 
 interface QRAnchorScannerProps {
   onAnchorCalibrated?: (anchorData: { nodeId: string; x: number; y: number; name: string }) => void;

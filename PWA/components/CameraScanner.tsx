@@ -1,8 +1,13 @@
 "use client";
 import { useEffect, useRef } from "react";
 
-// Using a named export explicitly
-export const CameraScanner = () => {
+// 1. Define the props interface to accept onScan
+interface CameraScannerProps {
+  onScan: (scannedText: string) => void | Promise<void>;
+}
+
+// 2. Destructure onScan from the component arguments
+export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan }) => {
   const ref = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -13,7 +18,10 @@ export const CameraScanner = () => {
           ref.current.play();
         }
       });
-  }, []);
+      
+    // Note: If you have QR scanning library logic (like html5-qrcode or jsqr) 
+    // that processes the video stream, it should call onScan(detectedText) here.
+  }, [onScan]);
 
   return <video ref={ref} style={{ width: "100%" }} />;
 };

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, RotateCcw, X, Camera, Navigation, Volume2, VolumeX, Languages } from "lucide-react";
 
-import QRAnchorScanner from "@/components/QRAnchorScanner";
+import { QRAnchorScanner } from "@/components/QRAnchorScanner";
 import Compass from "@/components/Compass";
 import FloorDetector from "@/components/FloorDetector";
 import MapOverlay from "@/components/MapOverlay";

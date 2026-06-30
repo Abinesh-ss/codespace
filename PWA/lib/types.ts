@@ -23,3 +23,9 @@ export interface UserPosition {
   x: number;
   y: number;
 }
+
+export interface Anchor {
+  floor: number; // or string, if your floor names are letters like "G", "B1"
+  x: number;
+  y: number;
+}

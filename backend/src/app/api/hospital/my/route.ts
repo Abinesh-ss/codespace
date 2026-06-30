@@ -2,25 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
+// List of allowed origins
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "https://hospinav.vercel.app",
+];
 
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
+// Dynamically set CORS depending on incoming request
+function cors(req: NextRequest, res: NextResponse) {
+  const origin = req.headers.get("origin") || "";
+  
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    // Fallback if no origin matches
+    res.headers.set("Access-Control-Allow-Origin", "https://hospinav.vercel.app");
+  }
+
   res.headers.set("Access-Control-Allow-Credentials", "true");
-  res.headers.set(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
-  res.headers.set(
-    "Access-Control-Allow-Methods",
-    "GET, OPTIONS"
-  );
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
 
   return res;
 }
 
-export async function OPTIONS() {
-  return cors(new NextResponse(null, { status: 204 }));
+export async function OPTIONS(req: NextRequest) {
+  return cors(req, new NextResponse(null, { status: 204 }));
 }
 
 export async function GET(req: NextRequest) {
@@ -32,6 +41,7 @@ export async function GET(req: NextRequest) {
 
     if (!token) {
       return cors(
+        req,
         NextResponse.json(
           { error: "Unauthorized" },
           { status: 401 }
@@ -48,6 +58,7 @@ export async function GET(req: NextRequest) {
       );
     } catch {
       return cors(
+        req,
         NextResponse.json(
           { error: "Invalid token" },
           { status: 401 }
@@ -82,8 +93,8 @@ export async function GET(req: NextRequest) {
       },
     });
 
-       if (!hospital) {
-      return cors(NextResponse.json({ error: "No hospital found" }, { status: 404 }));
+    if (!hospital) {
+      return cors(req, NextResponse.json({ error: "No hospital found" }, { status: 404 }));
     }
 
 
@@ -141,6 +152,7 @@ export async function GET(req: NextRequest) {
     // RESPONSE
     // =========================
     return cors(
+      req,
       NextResponse.json({
         ...hospital,
 
@@ -208,6 +220,7 @@ export async function GET(req: NextRequest) {
     );
 
     return cors(
+      req,
       NextResponse.json(
         { error: "Server error" },
         { status: 500 }

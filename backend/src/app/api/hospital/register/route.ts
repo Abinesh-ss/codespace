@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // Ensure this matches your prisma import path
+import prisma from "@/lib/db"; // Fixed to use your centralized DB singleton
 import { assignHospitalSubscription } from "@/lib/services/subscription.service";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 
-const FRONTEND = process.env.NEXT_PUBLIC_APP_URL!;
+// Authorized origins list matching your development codespace environment
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "https://hospinav.vercel.app",
+  "https://codespace-f.vercel.app",
+];
 
 /* ---------------- schema ---------------- */
 const hospitalSchema = z.object({
@@ -14,20 +21,29 @@ const hospitalSchema = z.object({
   state: z.string().optional(),
 });
 
-/* ---------------- CORS ---------------- */
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
+/* ---------------- DYNAMIC CORS HELPER ---------------- */
+function cors(req: NextRequest, res: NextResponse) {
+  const origin = req.headers.get("origin") || "";
+  
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    // Graceful fallback to prevent browser undefined matching failure logs
+    res.headers.set("Access-Control-Allow-Origin", "https://codespace-f.vercel.app");
+  }
+
   res.headers.set("Access-Control-Allow-Credentials", "true");
-  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  res.headers.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   return res;
 }
 
-export async function OPTIONS() {
-  return cors(new NextResponse(null, { status: 204 }));
+/* ---------------- CORS PREFLIGHT ---------------- */
+export async function OPTIONS(req: NextRequest) {
+  return cors(req, new NextResponse(null, { status: 204 }));
 }
 
-/* ---------------- AUTH ---------------- */
+/* ---------------- AUTHENTICATION CHECK ---------------- */
 async function authMiddleware(req: NextRequest) {
   const token = req.cookies.get("auth-token")?.value;
   if (!token) throw new Error("Unauthorized");
@@ -43,7 +59,7 @@ async function authMiddleware(req: NextRequest) {
   }
 }
 
-/* ---------------- POST ---------------- */
+/* ---------------- POST (REGISTER HOSPITAL) ---------------- */
 export async function POST(req: NextRequest) {
   try {
     const { userId, email } = await authMiddleware(req);
@@ -52,10 +68,10 @@ export async function POST(req: NextRequest) {
     const parsed = hospitalSchema.safeParse(body);
     
     if (!parsed.success) {
-      return cors(NextResponse.json({ error: "Invalid input. Check name and address length." }, { status: 400 }));
+      return cors(req, NextResponse.json({ error: "Invalid input. Check name and address length." }, { status: 400 }));
     }
 
-    // --- Enhanced Region Detection ---
+    // --- Region Detection Logic ---
     const countryStr = parsed.data.country.toLowerCase().trim();
     const stateStr = parsed.data.state?.toLowerCase().trim() || "";
 
@@ -88,15 +104,13 @@ export async function POST(req: NextRequest) {
       );
     } catch (subErr) {
       console.error("SUBSCRIPTION ASSIGNMENT ERROR:", subErr);
-      // We don't necessarily want to crash the whole request if the sub-service is down, 
-      // but we should log it for manual fixing.
     }
 
-    return cors(NextResponse.json(hospital, { status: 201 }));
+    return cors(req, NextResponse.json(hospital, { status: 201 }));
 
   } catch (err: any) {
     console.error("REGISTER ERROR:", err);
-    const status = err.message === "Unauthorized" ? 401 : 500;
-    return cors(NextResponse.json({ error: err.message || "Server error" }, { status }));
+    const status = (err.message === "Unauthorized" || err.message === "Invalid token") ? 401 : 500;
+    return cors(req, NextResponse.json({ error: err.message || "Server error" }, { status }));
   }
 }

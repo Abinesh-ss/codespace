@@ -3,14 +3,26 @@ import prisma from "@/lib/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+// List of recognized development and production domains
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "https://hospinav.vercel.app",
+];
+
 /**
  * CORS Helper: Applies required headers to every response.
  * When using credentials: true, Access-Control-Allow-Origin CANNOT be "*".
  */
 function setCorsHeaders(res: NextResponse, origin: string | null) {
-  const allowedOrigin = origin || process.env.NEXT_PUBLIC_FRONTEND_URL || "";
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    // Standard secure production fallback
+    res.headers.set("Access-Control-Allow-Origin", "https://hospinav.vercel.app");
+  }
   
-  res.headers.set("Access-Control-Allow-Origin", allowedOrigin);
   res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.headers.set("Access-Control-Allow-Credentials", "true");

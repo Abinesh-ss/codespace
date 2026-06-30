@@ -39,9 +39,8 @@ export function middleware(req: NextRequest) {
     req.nextUrl.pathname.startsWith("/api/hospital") &&
     ["POST", "PUT", "DELETE"].includes(req.method)
   ) {
-    const session =
-      req.cookies.get("next-auth.session-token") ||
-      req.cookies.get("__Secure-next-auth.session-token");
+    // FIXED: Changed from NextAuth cookies to your custom native auth-token cookie
+    const session = req.cookies.get("auth-token")?.value;
 
     if (!session) {
       const unauthorizedRes = NextResponse.json(

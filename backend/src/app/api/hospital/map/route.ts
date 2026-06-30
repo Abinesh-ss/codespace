@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db"; 
 import jwt from "jsonwebtoken";
 
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
+const FRONTEND = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
 
 // 1. CORS Utility to wrap every response
 function cors(res: NextResponse) {

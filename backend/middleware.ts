@@ -19,7 +19,11 @@ export function middleware(req: NextRequest) {
       response.headers.set("Access-Control-Allow-Origin", origin);
       response.headers.set("Access-Control-Allow-Credentials", "true");
       response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-      response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+      // FIXED: Added missing critical headers ('X-CSRF-Token', 'Accept-Version', etc.) to match your original configuration
+      response.headers.set(
+        "Access-Control-Allow-Headers", 
+        "Content-Type, Authorization, X-Requested-With, Accept, X-CSRF-Token, Accept-Version, Content-Length, Content-MD5, Date, X-Api-Version"
+      );
     }
     return response;
   };
@@ -40,7 +44,6 @@ export function middleware(req: NextRequest) {
     req.nextUrl.pathname.startsWith("/api/hospital") &&
     ["POST", "PUT", "DELETE"].includes(req.method)
   ) {
-    // FIXED: Changed from NextAuth cookies to your custom native auth-token cookie
     const session = req.cookies.get("auth-token")?.value;
 
     if (!session) {
@@ -48,14 +51,25 @@ export function middleware(req: NextRequest) {
         { error: "Unauthorized" },
         { status: 401 }
       );
-      // CRITICAL: Must add CORS headers here, otherwise browser blocks reading the 401 status
       return addCorsHeaders(unauthorizedRes);
     }
   }
 
   // ✅ 3. NORMAL FLOW
-  const res = NextResponse.next();
-  return addCorsHeaders(res);
+  // FIXED: Mutating headers via NextRequest context instead of directly modifying `NextResponse.next()`
+  if (isAllowedOrigin && origin) {
+    const requestHeaders = new Headers(req.headers);
+    const response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+    
+    // Inject CORS into the final outbound response stream safely
+    return addCorsHeaders(response);
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {

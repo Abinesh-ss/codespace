@@ -10,26 +10,30 @@ const ALLOWED_ORIGINS = [
 
 export function middleware(req: NextRequest) {
   const origin = req.headers.get("origin");
-
   const isAllowedOrigin = origin && ALLOWED_ORIGINS.includes(origin);
 
-  // ✅ PRE-FLIGHT
+  // Helper function to attach all required CORS headers to any response
+  const addCorsHeaders = (response: NextResponse) => {
+    if (isAllowedOrigin && origin) {
+      response.headers.set("Access-Control-Allow-Origin", origin);
+      response.headers.set("Access-Control-Allow-Credentials", "true");
+      response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+      response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+    }
+    return response;
+  };
+
+  // ✅ 1. PRE-FLIGHT (OPTIONS)
   if (req.method === "OPTIONS") {
-    return new NextResponse(null, {
-      status: 204,
-      headers: isAllowedOrigin
-        ? {
-            "Access-Control-Allow-Origin": origin!,
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Max-Age": "86400",
-          }
-        : {},
-    });
+    const preFlightRes = new NextResponse(null, { status: 204 });
+    if (isAllowedOrigin) {
+      addCorsHeaders(preFlightRes);
+      preFlightRes.headers.set("Access-Control-Max-Age", "86400");
+    }
+    return preFlightRes;
   }
 
-  // ✅ AUTH CHECK (production only)
+  // ✅ 2. AUTH CHECK (production only)
   if (
     process.env.NODE_ENV === "production" &&
     req.nextUrl.pathname.startsWith("/api/hospital") &&
@@ -40,25 +44,20 @@ export function middleware(req: NextRequest) {
       req.cookies.get("__Secure-next-auth.session-token");
 
     if (!session) {
-      return NextResponse.json(
+      const unauthorizedRes = NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
+      // CRITICAL: Must add CORS headers here, otherwise browser blocks reading the 401 status
+      return addCorsHeaders(unauthorizedRes);
     }
   }
 
-  // ✅ NORMAL FLOW
+  // ✅ 3. NORMAL FLOW
   const res = NextResponse.next();
-
-  if (isAllowedOrigin) {
-    res.headers.set("Access-Control-Allow-Origin", origin!);
-    res.headers.set("Access-Control-Allow-Credentials", "true");
-  }
-
-  return res;
+  return addCorsHeaders(res);
 }
 
 export const config = {
   matcher: "/api/:path*",
 };
-

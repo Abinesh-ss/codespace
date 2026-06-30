@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import prisma from "@/lib/db"; // Fixed to use centralized database singleton instance
 import jwt from "jsonwebtoken";
 
-// List of allowed origins
+// List of allowed origins matching your environment setup
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:3001",
@@ -19,7 +19,7 @@ function cors(req: NextRequest, res: NextResponse) {
     res.headers.set("Access-Control-Allow-Origin", origin);
   } else {
     // Fallback if no origin matches
-    res.headers.set("Access-Control-Allow-Origin", "https://hospinav.vercel.app");
+    res.headers.set("Access-Control-Allow-Origin", "https://codespace-f.vercel.app");
   }
 
   res.headers.set("Access-Control-Allow-Credentials", "true");

@@ -4,7 +4,7 @@ import { assignHospitalSubscription } from "@/lib/services/subscription.service"
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 
-const FRONTEND = process.env.NEXT_PUBLIC_FRONTEND_URL!;
+const FRONTEND = process.env.NEXT_PUBLIC_APP_URL!;
 
 /* ---------------- schema ---------------- */
 const hospitalSchema = z.object({

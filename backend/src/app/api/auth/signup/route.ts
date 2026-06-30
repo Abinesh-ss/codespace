@@ -2,20 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import bcrypt from "bcryptjs";
 
-const FRONTEND =
-  process.env.NEXT_PUBLIC_FRONTEND_URL || "http://localhost:3001";
+// List of recognized development and production domains
+const ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3002",
+  "https://hospinav.vercel.app",
+];
+
+/* 🔁 DYNAMIC CORS HELPER */
+function cors(req: NextRequest, res: NextResponse) {
+  const origin = req.headers.get("origin") || "";
+  
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    // Standard secure production fallback
+    res.headers.set("Access-Control-Allow-Origin", "https://hospinav.vercel.app");
+  }
+
+  res.headers.set("Access-Control-Allow-Credentials", "true");
+  res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return res;
+}
 
 /* ✅ CORS PREFLIGHT */
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": FRONTEND,
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Credentials": "true",
-    },
-  });
+export async function OPTIONS(req: NextRequest) {
+  return cors(req, new NextResponse(null, { status: 204 }));
 }
 
 /* ✅ SIGNUP */
@@ -25,6 +39,7 @@ export async function POST(req: NextRequest) {
 
     if (!email || !password) {
       return cors(
+        req,
         NextResponse.json(
           { error: "Email and password required" },
           { status: 400 }
@@ -35,6 +50,7 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       return cors(
+        req,
         NextResponse.json(
           { error: "User already exists" },
           { status: 409 }
@@ -53,6 +69,7 @@ export async function POST(req: NextRequest) {
     });
 
     return cors(
+      req,
       NextResponse.json(
         {
           message: "Signup successful",
@@ -67,6 +84,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("SIGNUP ERROR:", e);
     return cors(
+      req,
       NextResponse.json(
         { error: "Signup failed" },
         { status: 500 }
@@ -74,11 +92,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
-/* 🔁 SHARED CORS */
-function cors(res: NextResponse) {
-  res.headers.set("Access-Control-Allow-Origin", FRONTEND);
-  res.headers.set("Access-Control-Allow-Credentials", "true");
-  return res;
-}
-

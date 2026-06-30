@@ -8,6 +8,7 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3001",
   "http://localhost:3002",
   "https://hospinav.vercel.app",
+  "https://codespace-f.vercel.app",
 ];
 
 // Dynamically set CORS depending on incoming request

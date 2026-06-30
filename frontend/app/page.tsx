@@ -28,7 +28,7 @@ export default function Home() {
             <Shield className="w-4 h-4 mr-2" /> Enterprise-Grade Navigation Solution
           </span>
           <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6">
-            Validate and Improve <span className="block text-indigo-600">Indoor Navigation</span>
+            Improve Your <span className="block text-indigo-600">Indoor Navigation</span>
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-10">
             Transform static floor plans into intelligent navigation systems. Vazhikatti validates maps, analyzes navigation patterns, and delivers actionable insights for healthcare facilities, campuses, and complex buildings.

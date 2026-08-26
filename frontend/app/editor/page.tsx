@@ -22,22 +22,39 @@ interface GraphData {
   edges: Edge[];
 }
 
-// Inner component that handles hooks and map logic
+interface FloorItem {
+  id: string;
+  name: string;
+  hospitalId: string;
+}
+
 function MapEditorContent() {
   const searchParams = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const hospitalId = searchParams.get("hospitalId") || "";
-  const mapId = searchParams.get("mapId") || "";
+  // URL parameters
+  const queryHospitalId = searchParams.get("hospitalId") || "";
+  const queryMapId = searchParams.get("mapId") || "";
 
+  // Selected parameters state
+  const [hospitalId, setHospitalId] = useState<string>(queryHospitalId);
+  const [mapId, setMapId] = useState<string>(queryMapId);
+
+  // Fallback selection data
+  const [availableFloors, setAvailableFloors] = useState<FloorItem[]>([]);
+  const [fetchingList, setFetchingList] = useState<boolean>(false);
+
+  // Dynamic floor state
   const [floorName, setFloorName] = useState<string>("");
   const [floorLevel, setFloorLevel] = useState<number>(1);
   const [bgImageUrl, setBgImageUrl] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
 
+  // Graph state
   const [pois, setPois] = useState<NodePOI[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
 
+  // UI state
   const [mode, setMode] = useState<"addNode" | "addEdge" | "delete">("addNode");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nodeNameInput, setNodeNameInput] = useState<string>("");
@@ -47,25 +64,45 @@ function MapEditorContent() {
 
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
 
-  // Fetch floor data from API
+  // If parameters are missing, fetch available floors so user can pick one manually
   useEffect(() => {
-    async function fetchFloorData() {
-      if (!hospitalId || !mapId) {
-        setMessage("Missing hospitalId or mapId URL parameters.");
-        setLoading(false);
-        return;
+    if (!hospitalId || !mapId) {
+      async function fetchFloorsList() {
+        setFetchingList(true);
+        try {
+          const res = await fetch("/api/hospital/floor");
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              setAvailableFloors(data);
+            }
+          }
+        } catch {
+          // Ignore list fetch error
+        } finally {
+          setFetchingList(false);
+        }
       }
+      fetchFloorsList();
+    }
+  }, [hospitalId, mapId]);
 
+  // Fetch specific floor data once IDs are present
+  useEffect(() => {
+    if (!hospitalId || !mapId) return;
+
+    async function fetchFloorData() {
+      setLoading(true);
+      setMessage("");
       try {
         const res = await fetch(`/api/hospital/floor?hospitalId=${hospitalId}&mapId=${mapId}`);
         if (!res.ok) throw new Error("Failed to load map data.");
 
         const data = await res.json();
-        
         setFloorName(data.name || "Floor Map");
         setFloorLevel(data.level || 1);
         setBgImageUrl(data.imageUrl || data.bgImageUrl || "");
-        
+
         if (data.graphData) {
           setPois(data.graphData.pointsOfInterest || []);
           setEdges(data.graphData.edges || []);
@@ -89,7 +126,7 @@ function MapEditorContent() {
     img.onload = () => setBgImage(img);
   }, [bgImageUrl]);
 
-  // Canvas Rerender Loop
+  // Render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -142,9 +179,7 @@ function MapEditorContent() {
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
 
-    const clickedNode = pois.find(
-      (p) => Math.hypot(p.x - x, p.y - y) <= 12
-    );
+    const clickedNode = pois.find((p) => Math.hypot(p.x - x, p.y - y) <= 12);
 
     if (mode === "addNode") {
       if (!clickedNode) {
@@ -181,9 +216,7 @@ function MapEditorContent() {
       if (clickedNode) {
         setPois((prev) => prev.filter((p) => p.nodeId !== clickedNode.nodeId));
         setEdges((prev) =>
-          prev.filter(
-            (e) => e.fromNodeId !== clickedNode.nodeId && e.toNodeId !== clickedNode.nodeId
-          )
+          prev.filter((e) => e.fromNodeId !== clickedNode.nodeId && e.toNodeId !== clickedNode.nodeId)
         );
         if (selectedNodeId === clickedNode.nodeId) setSelectedNodeId(null);
       }
@@ -225,6 +258,67 @@ function MapEditorContent() {
       setSaving(false);
     }
   };
+
+  // Render floor selection prompt if missing parameters
+  if (!hospitalId || !mapId) {
+    return (
+      <div className="p-8 max-w-xl mx-auto my-12 bg-white rounded-lg shadow border">
+        <h1 className="text-xl font-bold text-gray-800 mb-2">Select a Floor Map to Edit</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          No map was specified in the URL. Please select an existing floor or enter the IDs below.
+        </p>
+
+        {availableFloors.length > 0 && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Select Floor Map</label>
+            <select
+              className="w-full border px-3 py-2 rounded text-sm"
+              onChange={(e) => {
+                const selected = availableFloors.find((f) => f.id === e.target.value);
+                if (selected) {
+                  setMapId(selected.id);
+                  setHospitalId(selected.hospitalId);
+                }
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>-- Choose a saved floor --</option>
+              {availableFloors.map((floor) => (
+                <option key={floor.id} value={floor.id}>
+                  {floor.name} (Hospital: {floor.hospitalId})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Hospital ID</label>
+            <input
+              type="text"
+              className="w-full border px-3 py-2 rounded text-sm"
+              value={hospitalId}
+              onChange={(e) => setHospitalId(e.target.value)}
+              placeholder="e.g. hosp-123"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Map ID</label>
+            <input
+              type="text"
+              className="w-full border px-3 py-2 rounded text-sm"
+              value={mapId}
+              onChange={(e) => setMapId(e.target.value)}
+              placeholder="e.g. floor-map-456"
+            />
+          </div>
+        </div>
+
+        {fetchingList && <p className="text-xs text-gray-500 mt-2">Loading available floors...</p>}
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="p-8 text-center text-gray-600">Loading floor map data...</div>;
@@ -326,7 +420,6 @@ function MapEditorContent() {
   );
 }
 
-// Default export wrapped with React Suspense to allow client-side search parameter parsing during Vercel builds
 export default function MapEditorPage() {
   return (
     <Suspense fallback={<div className="p-8 text-center text-gray-600">Loading map editor...</div>}>

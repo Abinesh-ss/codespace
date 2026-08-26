@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface NodePOI {
@@ -22,25 +22,22 @@ interface GraphData {
   edges: Edge[];
 }
 
-export default function MapEditorPage() {
+// Inner component that handles hooks and map logic
+function MapEditorContent() {
   const searchParams = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Read params passed via URL (e.g., /editor?hospitalId=xxx&mapId=yyy)
   const hospitalId = searchParams.get("hospitalId") || "";
   const mapId = searchParams.get("mapId") || "";
 
-  // Dynamic state populated from backend fetch
   const [floorName, setFloorName] = useState<string>("");
   const [floorLevel, setFloorLevel] = useState<number>(1);
   const [bgImageUrl, setBgImageUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Graph state
   const [pois, setPois] = useState<NodePOI[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
 
-  // UI state
   const [mode, setMode] = useState<"addNode" | "addEdge" | "delete">("addNode");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nodeNameInput, setNodeNameInput] = useState<string>("");
@@ -48,10 +45,9 @@ export default function MapEditorPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
 
-  // Background image HTML element reference
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
 
-  // 1. Automatically fetch saved floor details and graph data when page loads
+  // Fetch floor data from API
   useEffect(() => {
     async function fetchFloorData() {
       if (!hospitalId || !mapId) {
@@ -66,7 +62,6 @@ export default function MapEditorPage() {
 
         const data = await res.json();
         
-        // Auto-populate data fetched from backend
         setFloorName(data.name || "Floor Map");
         setFloorLevel(data.level || 1);
         setBgImageUrl(data.imageUrl || data.bgImageUrl || "");
@@ -85,7 +80,7 @@ export default function MapEditorPage() {
     fetchFloorData();
   }, [hospitalId, mapId]);
 
-  // 2. Load background image object when bgImageUrl updates
+  // Load background image
   useEffect(() => {
     if (!bgImageUrl) return;
     const img = new Image();
@@ -94,7 +89,7 @@ export default function MapEditorPage() {
     img.onload = () => setBgImage(img);
   }, [bgImageUrl]);
 
-  // 3. Canvas Rerender Loop
+  // Canvas Rerender Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -103,7 +98,6 @@ export default function MapEditorPage() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw uploaded background map
     if (bgImage) {
       ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
     } else {
@@ -111,7 +105,6 @@ export default function MapEditorPage() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Render Edges
     ctx.strokeStyle = "#3b82f6";
     ctx.lineWidth = 3;
     edges.forEach((edge) => {
@@ -125,7 +118,6 @@ export default function MapEditorPage() {
       }
     });
 
-    // Render Nodes/POIs
     pois.forEach((poi) => {
       const isSelected = poi.nodeId === selectedNodeId;
       ctx.beginPath();
@@ -142,7 +134,6 @@ export default function MapEditorPage() {
     });
   }, [pois, edges, bgImage, selectedNodeId]);
 
-  // Canvas Click Handler
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -199,7 +190,6 @@ export default function MapEditorPage() {
     }
   };
 
-  // Save modified nodes and edges back to backend API
   const handleSaveFloor = async () => {
     setSaving(true);
     setMessage("");
@@ -262,7 +252,6 @@ export default function MapEditorPage() {
         </div>
       )}
 
-      {/* Canvas & Editing Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 border rounded-lg overflow-hidden bg-white shadow-sm flex justify-center items-center p-2">
           <canvas
@@ -274,7 +263,6 @@ export default function MapEditorPage() {
           />
         </div>
 
-        {/* Toolbar */}
         <div className="bg-white p-4 border rounded-lg shadow-sm flex flex-col gap-4">
           <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wider">Editor Mode</h2>
           <div className="flex flex-col gap-2">
@@ -335,5 +323,14 @@ export default function MapEditorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Default export wrapped with React Suspense to allow client-side search parameter parsing during Vercel builds
+export default function MapEditorPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-600">Loading map editor...</div>}>
+      <MapEditorContent />
+    </Suspense>
   );
 }

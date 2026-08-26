@@ -1,236 +1,341 @@
 "use client";
 
-import React, { useState, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useState, useRef, useEffect } from "react";
 
-interface POI {
-  id: string;
+interface NodePOI {
+  nodeId: string;
   name: string;
-  category: string;
-  floor: number;
-  xRatio: number; // Stored as percentage (0-1) for dynamic image resizing
-  yRatio: number;
+  type: string;
+  x: number;
+  y: number;
 }
 
-export default function HospitalMapEditor() {
-  const searchParams = useSearchParams();
-  const mapId = searchParams.get("mapId") || "";
+interface Edge {
+  fromNodeId: string;
+  toNodeId: string;
+  distance: number;
+}
 
-  const [floor, setFloor] = useState<number>(2);
-  const [pois, setPois] = useState<POI[]>([
-    { id: "1", name: "EN", category: "GENERAL", floor: 2, xRatio: 0.35, yRatio: 0.5 },
-    { id: "2", name: "Room 2", category: "GENERAL", floor: 2, xRatio: 0.54, yRatio: 0.53 },
-    { id: "3", name: "Room 3", category: "GENERAL", floor: 2, xRatio: 0.54, yRatio: 0.72 },
-  ]);
-  const [activePoiId, setActivePoiId] = useState<string | null>("1");
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const imageContainerRef = useRef<HTMLDivElement>(null);
+interface GraphData {
+  pointsOfInterest: NodePOI[];
+  edges: Edge[];
+}
 
-  // Click handler to drop a new POI marker directly onto the image
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!imageContainerRef.current) return;
-    const rect = imageContainerRef.current.getBoundingClientRect();
-    
-    // Calculate clicked position relative to actual displayed image dimensions
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+export default function MapEditorPage() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-    const xRatio = clickX / rect.width;
-    const yRatio = clickY / rect.height;
+  // Editor configuration states
+  const [hospitalId, setHospitalId] = useState<string>("");
+  const [floorId, setFloorId] = useState<string>("new-uuid-placeholder");
+  const [floorName, setFloorName] = useState<string>("Floor 1");
+  const [floorLevel, setFloorLevel] = useState<number>(1);
+  const [bgImageUrl, setBgImageUrl] = useState<string>("");
 
-    const newPoi: POI = {
-      id: crypto.randomUUID(),
-      name: `Room ${pois.length + 1}`,
-      category: "GENERAL",
-      floor: floor,
-      xRatio: Math.max(0, Math.min(1, xRatio)),
-      yRatio: Math.max(0, Math.min(1, yRatio)),
+  // Graph state
+  const [pois, setPois] = useState<NodePOI[]>([]);
+  const [edges, setEdges] = useState<Edge[]>([]);
+
+  // UI state
+  const [mode, setMode] = useState<"addNode" | "addEdge" | "delete">("addNode");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [nodeNameInput, setNodeNameInput] = useState<string>("");
+  const [nodeTypeInput, setNodeTypeInput] = useState<string>("general");
+  const [saving, setSaving] = useState<boolean>(false);
+  const [message, setMessage] = useState<string>("");
+
+  // Background image element reference
+  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+
+  // Load background image when URL changes
+  useEffect(() => {
+    if (!bgImageUrl) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = bgImageUrl;
+    img.onload = () => setBgImage(img);
+  }, [bgImageUrl]);
+
+  // Canvas Rerender Loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Render background map
+    if (bgImage) {
+      ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Render Edges
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 3;
+    edges.forEach((edge) => {
+      const from = pois.find((p) => p.nodeId === edge.fromNodeId);
+      const to = pois.find((p) => p.nodeId === edge.toNodeId);
+      if (from && to) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    });
+
+    // Render Nodes/POIs
+    pois.forEach((poi) => {
+      const isSelected = poi.nodeId === selectedNodeId;
+      ctx.beginPath();
+      ctx.arc(poi.x, poi.y, isSelected ? 10 : 7, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? "#ef4444" : "#10b981";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Render Label
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#1f2937";
+      ctx.fillText(poi.name || poi.nodeId.substring(0, 4), poi.x + 12, poi.y + 4);
+    });
+  }, [pois, edges, bgImage, selectedNodeId]);
+
+  // Canvas Click Handler
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+
+    // Check if click hit an existing node
+    const clickedNode = pois.find(
+      (p) => Math.hypot(p.x - x, p.y - y) <= 12
+    );
+
+    if (mode === "addNode") {
+      if (!clickedNode) {
+        const newNode: NodePOI = {
+          nodeId: crypto.randomUUID(),
+          name: nodeNameInput || `Node ${pois.length + 1}`,
+          type: nodeTypeInput,
+          x,
+          y,
+        };
+        setPois((prev) => [...prev, newNode]);
+      } else {
+        setSelectedNodeId(clickedNode.nodeId);
+      }
+    } else if (mode === "addEdge") {
+      if (clickedNode) {
+        if (!selectedNodeId) {
+          setSelectedNodeId(clickedNode.nodeId);
+        } else if (selectedNodeId !== clickedNode.nodeId) {
+          const fromNode = pois.find((p) => p.nodeId === selectedNodeId);
+          if (fromNode) {
+            const dist = Math.round(Math.hypot(fromNode.x - clickedNode.x, fromNode.y - clickedNode.y));
+            const newEdge: Edge = {
+              fromNodeId: selectedNodeId,
+              toNodeId: clickedNode.nodeId,
+              distance: dist,
+            };
+            setEdges((prev) => [...prev, newEdge]);
+          }
+          setSelectedNodeId(null);
+        }
+      }
+    } else if (mode === "delete") {
+      if (clickedNode) {
+        setPois((prev) => prev.filter((p) => p.nodeId !== clickedNode.nodeId));
+        setEdges((prev) =>
+          prev.filter(
+            (e) =>
+              e.fromNodeId !== clickedNode.nodeId &&
+              e.toNodeId !== clickedNode.nodeId
+          )
+        );
+        if (selectedNodeId === clickedNode.nodeId) setSelectedNodeId(null);
+      }
+    }
+  };
+
+  // Save Graph Data to Backend API
+  const handleSaveFloor = async () => {
+    if (!hospitalId) {
+      setMessage("Please enter a valid Hospital ID.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const graphData: GraphData = {
+      pointsOfInterest: pois,
+      edges,
     };
 
-    setPois((prev) => [...prev, newPoi]);
-    setActivePoiId(newPoi.id);
-  };
-
-  const updatePoiName = (id: string, newName: string) => {
-    setPois((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, name: newName } : item))
-    );
-  };
-
-  const deletePoi = (id: string) => {
-    setPois((prev) => prev.filter((item) => item.id !== id));
-    if (activePoiId === id) setActivePoiId(null);
-  };
-
-  const handleSaveChanges = async () => {
-    setIsSaving(true);
     try {
-      const response = await fetch("http://localhost:3000/api/hospital/map/save-pois", {
+      const res = await fetch("/api/hospital/floor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mapId, floor, pois }),
+        body: JSON.stringify({
+          hospitalId,
+          mapId: floorId,
+          name: floorName,
+          level: floorLevel,
+          graphData,
+        }),
       });
-      if (response.ok) {
-        alert("Map changes saved successfully!");
+
+      const data = await res.json();
+      if (res.ok) {
+        setMessage("Floor map and node topology saved successfully!");
+        if (data.id) setFloorId(data.id);
       } else {
-        alert("Failed to save changes.");
+        setMessage(`Save failed: ${data.error || "Unknown error"}`);
       }
-    } catch (err) {
-      console.error(err);
-      alert("Network error while saving.");
+    } catch (err: any) {
+      setMessage(`Server error: ${err.message}`);
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100 font-sans text-slate-800">
-      {/* Top Header Bar */}
-      <header className="flex items-center justify-between px-6 py-3 bg-white border-b">
-        <div className="flex items-center space-x-2">
-          <span className="text-xl font-bold text-blue-600">Vazhikatti</span>
+    <div className="p-6 max-w-7xl mx-auto flex flex-col gap-6">
+      <div className="flex justify-between items-center border-b pb-4">
+        <h1 className="text-2xl font-bold text-gray-800">Hospital Map & Node Editor</h1>
+        <button
+          onClick={handleSaveFloor}
+          disabled={saving}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Floor & Graph"}
+        </button>
+      </div>
+
+      {message && (
+        <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-sm">
+          {message}
         </div>
-        <nav className="flex items-center space-x-6 text-sm font-semibold">
-          <a href="#" className="hover:text-blue-600">Dashboard</a>
-          <a href="#" className="hover:text-blue-600">Upload</a>
-          <a href="#" className="text-blue-600">Editor</a>
-          <a href="#" className="hover:text-blue-600">Navigate</a>
-          <a href="#" className="hover:text-blue-600">QR</a>
-        </nav>
-      </header>
+      )}
 
-      {/* Editor Sub-Header Toolbar */}
-      <div className="flex items-center justify-between px-8 py-4 bg-white border-b shadow-sm">
-        <div className="flex items-center space-x-3">
-          <h1 className="text-lg font-bold">HOSPITAL MAP EDITOR</h1>
-          <span className="text-gray-400">|</span>
-          <span className="text-gray-600 font-medium">Hospital Floor Plan</span>
+      {/* Configuration Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 border rounded-lg shadow-sm">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Hospital ID</label>
+          <input
+            type="text"
+            className="w-full border px-3 py-1.5 rounded text-sm"
+            value={hospitalId}
+            onChange={(e) => setHospitalId(e.target.value)}
+            placeholder="Hospital UUID"
+          />
         </div>
-
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs font-bold text-gray-500 uppercase">FLOOR</span>
-            <input
-              type="number"
-              value={floor}
-              onChange={(e) => setFloor(Number(e.target.value))}
-              className="w-12 px-2 py-1 border rounded text-center font-bold"
-            />
-          </div>
-
-          <button className="px-4 py-2 bg-amber-100 text-amber-700 font-bold rounded-lg hover:bg-amber-200">
-            ✨ AI SCAN
-          </button>
-
-          <button
-            onClick={handleSaveChanges}
-            disabled={isSaving}
-            className="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700"
-          >
-            {isSaving ? "SAVING..." : "💾 SAVE CHANGES"}
-          </button>
-
-          <button className="px-4 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800">
-            QR GEN
-          </button>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Floor Name</label>
+          <input
+            type="text"
+            className="w-full border px-3 py-1.5 rounded text-sm"
+            value={floorName}
+            onChange={(e) => setFloorName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Floor Level</label>
+          <input
+            type="number"
+            className="w-full border px-3 py-1.5 rounded text-sm"
+            value={floorLevel}
+            onChange={(e) => setFloorLevel(Number(e.target.value))}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Background Image URL</label>
+          <input
+            type="text"
+            className="w-full border px-3 py-1.5 rounded text-sm"
+            value={bgImageUrl}
+            onChange={(e) => setBgImageUrl(e.target.value)}
+            placeholder="https://..."
+          />
         </div>
       </div>
 
-      {/* Main Content Workspace */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Interactive Canvas Area */}
-        <div className="flex-1 p-6 relative overflow-auto flex items-center justify-center">
-          <div
-            ref={imageContainerRef}
-            onClick={handleImageClick}
-            className="relative cursor-crosshair border shadow-md bg-white rounded-lg overflow-hidden select-none"
-            style={{ width: "800px", height: "550px" }}
-          >
-            {/* Base Image Upload */}
-            <img
-              src="/sample-floorplan.png"
-              alt="Floor Plan"
-              className="w-full h-full object-contain pointer-events-none"
-            />
-
-            {/* Dynamic POI Markers Layer */}
-            {pois.map((poi) => {
-              const isActive = poi.id === activePoiId;
-              return (
-                <div
-                  key={poi.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setActivePoiId(poi.id);
-                  }}
-                  className="absolute -translate-x-1/2 -translate-y-full cursor-pointer group"
-                  style={{
-                    left: `${poi.xRatio * 100}%`,
-                    top: `${poi.yRatio * 100}%`,
-                  }}
-                >
-                  <div className="flex flex-col items-center">
-                    {/* Location Pin Icon */}
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-transform ${
-                        isActive ? "bg-blue-600 scale-125 ring-4 ring-blue-300" : "bg-slate-700 hover:scale-110"
-                      }`}
-                    >
-                      📍
-                    </div>
-                    {/* Location Name Tag */}
-                    <span className="mt-1 px-2 py-0.5 bg-black text-white text-[10px] font-bold rounded shadow uppercase">
-                      {poi.name}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Editor Canvas & Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-3 border rounded-lg overflow-hidden bg-white shadow-sm flex justify-center items-center p-2">
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={600}
+            onClick={handleCanvasClick}
+            className="border cursor-crosshair rounded"
+          />
         </div>
 
-        {/* Right Active Elements Sidebar */}
-        <div className="w-80 bg-white border-l p-4 flex flex-col space-y-4 overflow-y-auto">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-            ACTIVE ELEMENTS
-          </h2>
+        {/* Toolbar */}
+        <div className="bg-white p-4 border rounded-lg shadow-sm flex flex-col gap-4">
+          <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wider">Editor Mode</h2>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => { setMode("addNode"); setSelectedNodeId(null); }}
+              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "addNode" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-gray-50 text-gray-700"}`}
+            >
+              📍 Add Node / POI
+            </button>
+            <button
+              onClick={() => { setMode("addEdge"); setSelectedNodeId(null); }}
+              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "addEdge" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-gray-50 text-gray-700"}`}
+            >
+              🔗 Draw Path Edge
+            </button>
+            <button
+              onClick={() => { setMode("delete"); setSelectedNodeId(null); }}
+              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "delete" ? "bg-red-50 border-red-500 text-red-700" : "bg-gray-50 text-gray-700"}`}
+            >
+              🗑️ Delete Element
+            </button>
+          </div>
 
-          <div className="space-y-3">
-            {pois.map((poi) => {
-              const isActive = poi.id === activePoiId;
-              return (
-                <div
-                  key={poi.id}
-                  onClick={() => setActivePoiId(poi.id)}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                    isActive ? "border-blue-500 bg-blue-50/50 shadow-sm" : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <input
-                      type="text"
-                      value={poi.name}
-                      onChange={(e) => updatePoiName(poi.id, e.target.value)}
-                      className="font-bold text-slate-800 bg-transparent border-b border-transparent focus:border-blue-500 outline-none w-full mr-2"
-                    />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deletePoi(poi.id);
-                      }}
-                      className="text-gray-400 hover:text-red-500 text-sm"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+          <hr className="my-2" />
 
-                  <div className="mt-2 text-[10px] text-gray-400 font-semibold space-y-0.5">
-                    <div>{poi.category}</div>
-                    <div>FLOOR: {poi.floor}</div>
-                  </div>
-                </div>
-              );
-            })}
+          <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wider">Next Node Defaults</h2>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Node Name</label>
+            <input
+              type="text"
+              className="w-full border px-3 py-1.5 rounded text-sm"
+              value={nodeNameInput}
+              onChange={(e) => setNodeNameInput(e.target.value)}
+              placeholder="e.g. ICU, Entrance"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Node Type</label>
+            <select
+              className="w-full border px-3 py-1.5 rounded text-sm"
+              value={nodeTypeInput}
+              onChange={(e) => setNodeTypeInput(e.target.value)}
+            >
+              <option value="general">General</option>
+              <option value="room">Room / POI</option>
+              <option value="elevator">Elevator</option>
+              <option value="stairs">Stairs</option>
+              <option value="entrance">Entrance</option>
+            </select>
+          </div>
+
+          <hr className="my-2" />
+
+          <div className="text-xs text-gray-500 space-y-1">
+            <p><strong>Total Nodes:</strong> {pois.length}</p>
+            <p><strong>Total Edges:</strong> {edges.length}</p>
           </div>
         </div>
       </div>

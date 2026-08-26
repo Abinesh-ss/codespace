@@ -4,27 +4,29 @@ import jwt from "jsonwebtoken";
 
 const FRONTEND = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
 
-// 1. CORS Utility to wrap every response
 function cors(res: NextResponse) {
   res.headers.set("Access-Control-Allow-Origin", FRONTEND);
   res.headers.set("Access-Control-Allow-Credentials", "true");
   res.headers.set(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
+    "Content-Type, Authorization, X-Requested-With"
   );
   res.headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   return res;
 }
 
-// 2. OPTIONS Handler (Crucial for fixing the "CORS header missing" error)
 export async function OPTIONS() {
   return cors(new NextResponse(null, { status: 204 }));
 }
 
 export async function POST(req: NextRequest) {
   try {
-    // --- AUTH LOGIC ---
-    const token = req.cookies.get("auth-token")?.value;
+    // 1. Read token from Authorization header FIRST, fallback to Cookies
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : req.cookies.get("auth-token")?.value;
+
     if (!token) {
       return cors(NextResponse.json({ error: "Unauthorized: No token found" }, { status: 401 }));
     }
@@ -36,8 +38,13 @@ export async function POST(req: NextRequest) {
       return cors(NextResponse.json({ error: "Invalid or expired token" }, { status: 401 }));
     }
 
-    // --- CORE LOGIC ---
-    const userId = payload.userId; 
+    // 2. Extract user ID safely (JWT payloads vary between 'userId', 'id', or 'sub')
+    const userId = payload.userId || payload.id || payload.sub; 
+
+    if (!userId) {
+      return cors(NextResponse.json({ error: "Invalid token payload" }, { status: 401 }));
+    }
+
     const body = await req.json();
     const { name, imageUrl } = body; 
 
@@ -65,7 +72,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // --- SUCCESS RESPONSE ---
     return cors(NextResponse.json({ 
       success: true, 
       mapId: newMap.id,

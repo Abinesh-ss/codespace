@@ -1,429 +1,326 @@
 "use client";
 
-import React, { useState, useRef, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useState, useRef, useMemo } from "react";
+import { Move, Navigation, Plus, Trash2, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 
-interface NodePOI {
+interface POI {
+  id: string;
   nodeId: string;
   name: string;
-  type: string;
+  floorId: string | number;
   x: number;
   y: number;
+  category?: string;
 }
 
-interface Edge {
-  fromNodeId: string;
-  toNodeId: string;
-  distance: number;
-}
-
-interface GraphData {
-  pointsOfInterest: NodePOI[];
-  edges: Edge[];
-}
-
-interface FloorItem {
+interface Route {
   id: string;
-  name: string;
-  hospitalId: string;
+  from: string; // matches POI nodeId
+  to: string;   // matches POI nodeId
+  floorId?: string | number;
 }
 
-function MapEditorContent() {
-  const searchParams = useSearchParams();
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+interface MapEditorProps {
+  initialPOIs?: POI[];
+  initialRoutes?: Route[];
+  activeFloor: string | number;
+}
 
-  // URL parameters
-  const queryHospitalId = searchParams.get("hospitalId") || "";
-  const queryMapId = searchParams.get("mapId") || "";
+export default function MapEditor({
+  initialPOIs = [],
+  initialRoutes = [],
+  activeFloor = "1",
+}: MapEditorProps) {
+  const [pointsOfInterest, setPointsOfInterest] = useState<POI[]>(initialPOIs);
+  const [routes, setRoutes] = useState<Route[]>(initialRoutes);
+  
+  // Editor View Controls
+  const [scale, setScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [activeTool, setActiveTool] = useState<"select" | "poi" | "route">("select");
+  
+  // Selection State
+  const [selectedPOI, setSelectedPOI] = useState<string | null>(null);
+  const [routeStartNode, setRouteStartNode] = useState<string | null>(null);
+  const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Selected parameters state
-  const [hospitalId, setHospitalId] = useState<string>(queryHospitalId);
-  const [mapId, setMapId] = useState<string>(queryMapId);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fallback selection data
-  const [availableFloors, setAvailableFloors] = useState<FloorItem[]>([]);
-  const [fetchingList, setFetchingList] = useState<boolean>(false);
+  // Filtered POIs for current active floor
+  const visiblePOIs = useMemo(() => {
+    return pointsOfInterest.filter((p) => String(p.floorId) === String(activeFloor));
+  }, [pointsOfInterest, activeFloor]);
 
-  // Dynamic floor state
-  const [floorName, setFloorName] = useState<string>("");
-  const [floorLevel, setFloorLevel] = useState<number>(1);
-  const [bgImageUrl, setBgImageUrl] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
-
-  // Graph state
-  const [pois, setPois] = useState<NodePOI[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-
-  // UI state
-  const [mode, setMode] = useState<"addNode" | "addEdge" | "delete">("addNode");
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [nodeNameInput, setNodeNameInput] = useState<string>("");
-  const [nodeTypeInput, setNodeTypeInput] = useState<string>("general");
-  const [saving, setSaving] = useState<boolean>(false);
-  const [message, setMessage] = useState<string>("");
-
-  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
-
-  // If parameters are missing, fetch available floors so user can pick one manually
-  useEffect(() => {
-    if (!hospitalId || !mapId) {
-      async function fetchFloorsList() {
-        setFetchingList(true);
-        try {
-          const res = await fetch("/api/hospital/floor");
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data)) {
-              setAvailableFloors(data);
-            }
-          }
-        } catch {
-          // Ignore list fetch error
-        } finally {
-          setFetchingList(false);
-        }
+  // Filtered Routes where BOTH connected POIs exist on the current active floor
+  const visibleRoutes = useMemo(() => {
+    return routes.filter((route) => {
+      const fromPOI = pointsOfInterest.find((p) => p.nodeId === route.from);
+      const toPOI = pointsOfInterest.find((p) => p.nodeId === route.to);
+      
+      if (!fromPOI || !toPOI) return false;
+      
+      // If floorId is explicitly on route, check it; otherwise ensure both nodes belong to active floor
+      if (route.floorId !== undefined) {
+        return String(route.floorId) === String(activeFloor);
       }
-      fetchFloorsList();
-    }
-  }, [hospitalId, mapId]);
-
-  // Fetch specific floor data once IDs are present
-  useEffect(() => {
-    if (!hospitalId || !mapId) return;
-
-    async function fetchFloorData() {
-      setLoading(true);
-      setMessage("");
-      try {
-        const res = await fetch(`/api/hospital/floor?hospitalId=${hospitalId}&mapId=${mapId}`);
-        if (!res.ok) throw new Error("Failed to load map data.");
-
-        const data = await res.json();
-        setFloorName(data.name || "Floor Map");
-        setFloorLevel(data.level || 1);
-        setBgImageUrl(data.imageUrl || data.bgImageUrl || "");
-
-        if (data.graphData) {
-          setPois(data.graphData.pointsOfInterest || []);
-          setEdges(data.graphData.edges || []);
-        }
-      } catch (err: any) {
-        setMessage(`Error fetching data: ${err.message}`);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchFloorData();
-  }, [hospitalId, mapId]);
-
-  // Load background image
-  useEffect(() => {
-    if (!bgImageUrl) return;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = bgImageUrl;
-    img.onload = () => setBgImage(img);
-  }, [bgImageUrl]);
-
-  // Render loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (bgImage) {
-      ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.fillStyle = "#f3f4f6";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    ctx.strokeStyle = "#3b82f6";
-    ctx.lineWidth = 3;
-    edges.forEach((edge) => {
-      const from = pois.find((p) => p.nodeId === edge.fromNodeId);
-      const to = pois.find((p) => p.nodeId === edge.toNodeId);
-      if (from && to) {
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
-      }
+      return String(fromPOI.floorId) === String(activeFloor) && String(toPOI.floorId) === String(activeFloor);
     });
+  }, [routes, pointsOfInterest, activeFloor]);
 
-    pois.forEach((poi) => {
-      const isSelected = poi.nodeId === selectedNodeId;
-      ctx.beginPath();
-      ctx.arc(poi.x, poi.y, isSelected ? 10 : 7, 0, Math.PI * 2);
-      ctx.fillStyle = isSelected ? "#ef4444" : "#10b981";
-      ctx.fill();
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+  // Convert Screen Clicks to Canvas Coordinates (Accounting for Scale & Rotation)
+  const getCanvasCoordinates = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
 
-      ctx.font = "12px sans-serif";
-      ctx.fillStyle = "#1f2937";
-      ctx.fillText(poi.name || poi.nodeId.substring(0, 4), poi.x + 12, poi.y + 4);
-    });
-  }, [pois, edges, bgImage, selectedNodeId]);
+    const dx = clickX - offset.x;
+    const dy = clickY - offset.y;
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const rad = (-rotation * Math.PI) / 180;
+    const rotX = dx * Math.cos(rad) - dy * Math.sin(rad);
+    const rotY = dx * Math.sin(rad) + dy * Math.cos(rad);
 
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.round(e.clientX - rect.left);
-    const y = Math.round(e.clientY - rect.top);
-
-    const clickedNode = pois.find((p) => Math.hypot(p.x - x, p.y - y) <= 12);
-
-    if (mode === "addNode") {
-      if (!clickedNode) {
-        const newNode: NodePOI = {
-          nodeId: crypto.randomUUID(),
-          name: nodeNameInput || `Node ${pois.length + 1}`,
-          type: nodeTypeInput,
-          x,
-          y,
-        };
-        setPois((prev) => [...prev, newNode]);
-      } else {
-        setSelectedNodeId(clickedNode.nodeId);
-      }
-    } else if (mode === "addEdge") {
-      if (clickedNode) {
-        if (!selectedNodeId) {
-          setSelectedNodeId(clickedNode.nodeId);
-        } else if (selectedNodeId !== clickedNode.nodeId) {
-          const fromNode = pois.find((p) => p.nodeId === selectedNodeId);
-          if (fromNode) {
-            const dist = Math.round(Math.hypot(fromNode.x - clickedNode.x, fromNode.y - clickedNode.y));
-            const newEdge: Edge = {
-              fromNodeId: selectedNodeId,
-              toNodeId: clickedNode.nodeId,
-              distance: dist,
-            };
-            setEdges((prev) => [...prev, newEdge]);
-          }
-          setSelectedNodeId(null);
-        }
-      }
-    } else if (mode === "delete") {
-      if (clickedNode) {
-        setPois((prev) => prev.filter((p) => p.nodeId !== clickedNode.nodeId));
-        setEdges((prev) =>
-          prev.filter((e) => e.fromNodeId !== clickedNode.nodeId && e.toNodeId !== clickedNode.nodeId)
-        );
-        if (selectedNodeId === clickedNode.nodeId) setSelectedNodeId(null);
-      }
-    }
-  };
-
-  const handleSaveFloor = async () => {
-    setSaving(true);
-    setMessage("");
-
-    const graphData: GraphData = {
-      pointsOfInterest: pois,
-      edges,
+    return {
+      x: Math.round(rotX / scale),
+      y: Math.round(rotY / scale),
     };
+  };
 
-    try {
-      const res = await fetch("/api/hospital/floor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hospitalId,
-          mapId,
-          name: floorName,
-          level: floorLevel,
-          imageUrl: bgImageUrl,
-          graphData,
-        }),
-      });
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDraggingCanvas) return;
 
-      const data = await res.json();
-      if (res.ok) {
-        setMessage("Node graph saved successfully!");
-      } else {
-        setMessage(`Save failed: ${data.error || "Unknown error"}`);
-      }
-    } catch (err: any) {
-      setMessage(`Server error: ${err.message}`);
-    } finally {
-      setSaving(false);
+    const { x, y } = getCanvasCoordinates(e);
+
+    if (activeTool === "poi") {
+      const newPOI: POI = {
+        id: `poi_${Date.now()}`,
+        nodeId: `node_${Math.random().toString(36).substring(2, 7)}`,
+        name: `Point ${pointsOfInterest.length + 1}`,
+        floorId: activeFloor,
+        x,
+        y,
+      };
+      setPointsOfInterest((prev) => [...prev, newPOI]);
+      setSelectedPOI(newPOI.id);
     }
   };
 
-  // Render floor selection prompt if missing parameters
-  if (!hospitalId || !mapId) {
-    return (
-      <div className="p-8 max-w-xl mx-auto my-12 bg-white rounded-lg shadow border">
-        <h1 className="text-xl font-bold text-gray-800 mb-2">Select a Floor Map to Edit</h1>
-        <p className="text-sm text-gray-600 mb-6">
-          No map was specified in the URL. Please select an existing floor or enter the IDs below.
-        </p>
+  const handleNodeClick = (e: React.MouseEvent, poi: POI) => {
+    e.stopPropagation();
 
-        {availableFloors.length > 0 && (
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Select Floor Map</label>
-            <select
-              className="w-full border px-3 py-2 rounded text-sm"
-              onChange={(e) => {
-                const selected = availableFloors.find((f) => f.id === e.target.value);
-                if (selected) {
-                  setMapId(selected.id);
-                  setHospitalId(selected.hospitalId);
-                }
-              }}
-              defaultValue=""
-            >
-              <option value="" disabled>-- Choose a saved floor --</option>
-              {availableFloors.map((floor) => (
-                <option key={floor.id} value={floor.id}>
-                  {floor.name} (Hospital: {floor.hospitalId})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+    if (activeTool === "route") {
+      if (!routeStartNode) {
+        setRouteStartNode(poi.nodeId);
+      } else if (routeStartNode !== poi.nodeId) {
+        const newRoute: Route = {
+          id: `route_${Date.now()}`,
+          from: routeStartNode,
+          to: poi.nodeId,
+          floorId: activeFloor,
+        };
+        setRoutes((prev) => [...prev, newRoute]);
+        setRouteStartNode(null);
+      }
+    } else {
+      setSelectedPOI(poi.id);
+    }
+  };
 
-        <div className="flex flex-col gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Hospital ID</label>
-            <input
-              type="text"
-              className="w-full border px-3 py-2 rounded text-sm"
-              value={hospitalId}
-              onChange={(e) => setHospitalId(e.target.value)}
-              placeholder="e.g. hosp-123"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Map ID</label>
-            <input
-              type="text"
-              className="w-full border px-3 py-2 rounded text-sm"
-              value={mapId}
-              onChange={(e) => setMapId(e.target.value)}
-              placeholder="e.g. floor-map-456"
-            />
-          </div>
-        </div>
+  // Pan Canvas Handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0 && (activeTool === "select" || e.spaceKey)) {
+      setIsDraggingCanvas(true);
+      setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+    }
+  };
 
-        {fetchingList && <p className="text-xs text-gray-500 mt-2">Loading available floors...</p>}
-      </div>
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDraggingCanvas) {
+      setOffset({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDraggingCanvas(false);
+  };
+
+  const deletePOI = (id: string) => {
+    const poiToDelete = pointsOfInterest.find((p) => p.id === id);
+    if (!poiToDelete) return;
+
+    setPointsOfInterest((prev) => prev.filter((p) => p.id !== id));
+    setRoutes((prev) =>
+      prev.filter((r) => r.from !== poiToDelete.nodeId && r.to !== poiToDelete.nodeId)
     );
-  }
-
-  if (loading) {
-    return <div className="p-8 text-center text-gray-600">Loading floor map data...</div>;
-  }
+    if (selectedPOI === id) setSelectedPOI(null);
+  };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto flex flex-col gap-6">
-      <div className="flex justify-between items-center border-b pb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">{floorName || "Floor Editor"}</h1>
-          <p className="text-sm text-gray-500">Level: {floorLevel} | Hospital ID: {hospitalId}</p>
-        </div>
-        <button
-          onClick={handleSaveFloor}
-          disabled={saving}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium disabled:opacity-50"
+    <div className="flex h-screen w-full bg-slate-900 text-slate-100 overflow-hidden">
+      {/* Canvas Area */}
+      <div
+        ref={containerRef}
+        className="relative flex-1 cursor-crosshair overflow-hidden select-none"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onClick={handleCanvasClick}
+      >
+        {/* Transform Group */}
+        <div
+          className="absolute inset-0 w-full h-full"
+          style={{
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale}) rotate(${rotation}deg)`,
+            transformOrigin: "top left",
+          }}
         >
-          {saving ? "Saving..." : "Save Graph Changes"}
-        </button>
+          {/* SVG Overlay Layer for Routes */}
+          <svg className="absolute inset-0 w-[5000px] h-[5000px] pointer-events-none z-10">
+            {visibleRoutes.map((route) => {
+              const from = pointsOfInterest.find((p) => p.nodeId === route.from);
+              const to = pointsOfInterest.find((p) => p.nodeId === route.to);
+
+              if (!from || !to) return null;
+
+              return (
+                <line
+                  key={route.id}
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                  stroke="#3b82f6"
+                  strokeWidth={3 / scale}
+                  strokeDasharray="6,6"
+                />
+              );
+            })}
+          </svg>
+
+          {/* POI Render Layer */}
+          {visiblePOIs.map((poi) => {
+            const isSelected = selectedPOI === poi.id;
+            const isRouteSource = routeStartNode === poi.nodeId;
+
+            return (
+              <div
+                key={poi.id}
+                onClick={(e) => handleNodeClick(e, poi)}
+                style={{
+                  left: `${poi.x}px`,
+                  top: `${poi.y}px`,
+                  transform: `translate(-50%, -50%) scale(${1 / scale})`,
+                }}
+                className={`absolute z-20 flex items-center justify-center w-6 h-6 rounded-full cursor-pointer transition-transform ${
+                  isRouteSource
+                    ? "bg-amber-500 ring-4 ring-amber-300"
+                    : isSelected
+                    ? "bg-emerald-500 ring-4 ring-emerald-300"
+                    : "bg-blue-600 hover:bg-blue-500"
+                }`}
+              >
+                <span className="text-[10px] font-bold text-white pointer-events-none">
+                  {poi.name.substring(0, 2)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Toolbar Controls */}
+        <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-slate-800/90 border border-slate-700 p-1.5 rounded-lg backdrop-blur">
+          <button
+            onClick={() => setActiveTool("select")}
+            className={`p-2 rounded ${activeTool === "select" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"}`}
+            title="Select / Pan"
+          >
+            <Move size={18} />
+          </button>
+          <button
+            onClick={() => setActiveTool("poi")}
+            className={`p-2 rounded ${activeTool === "poi" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"}`}
+            title="Add POI"
+          >
+            <Plus size={18} />
+          </button>
+          <button
+            onClick={() => setActiveTool("route")}
+            className={`p-2 rounded ${activeTool === "route" ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"}`}
+            title="Connect Route"
+          >
+            <Navigation size={18} />
+          </button>
+          <div className="h-4 w-px bg-slate-700 mx-1" />
+          <button
+            onClick={() => setScale((s) => Math.min(s + 0.2, 5))}
+            className="p-2 text-slate-400 hover:text-white"
+            title="Zoom In"
+          >
+            <ZoomIn size={18} />
+          </button>
+          <button
+            onClick={() => setScale((s) => Math.max(s - 0.2, 0.2))}
+            className="p-2 text-slate-400 hover:text-white"
+            title="Zoom Out"
+          >
+            <ZoomOut size={18} />
+          </button>
+          <button
+            onClick={() => setRotation((r) => (r + 90) % 360)}
+            className="p-2 text-slate-400 hover:text-white"
+            title="Rotate View"
+          >
+            <RotateCw size={18} />
+          </button>
+        </div>
       </div>
 
-      {message && (
-        <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-sm">
-          {message}
-        </div>
-      )}
+      {/* Sidebar - Render Filtered Floor Nodes */}
+      <div className="w-80 border-l border-slate-800 bg-slate-900/50 p-4 flex flex-col gap-4 z-30">
+        <h2 className="text-lg font-semibold text-slate-200">
+          Floor {activeFloor} Nodes ({visiblePOIs.length})
+        </h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 border rounded-lg overflow-hidden bg-white shadow-sm flex justify-center items-center p-2">
-          <canvas
-            ref={canvasRef}
-            width={800}
-            height={600}
-            onClick={handleCanvasClick}
-            className="border cursor-crosshair rounded"
-          />
-        </div>
-
-        <div className="bg-white p-4 border rounded-lg shadow-sm flex flex-col gap-4">
-          <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wider">Editor Mode</h2>
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => { setMode("addNode"); setSelectedNodeId(null); }}
-              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "addNode" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-gray-50 text-gray-700"}`}
-            >
-              📍 Add Node / POI
-            </button>
-            <button
-              onClick={() => { setMode("addEdge"); setSelectedNodeId(null); }}
-              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "addEdge" ? "bg-blue-50 border-blue-500 text-blue-700" : "bg-gray-50 text-gray-700"}`}
-            >
-              🔗 Draw Path Edge
-            </button>
-            <button
-              onClick={() => { setMode("delete"); setSelectedNodeId(null); }}
-              className={`px-3 py-2 text-left rounded-md text-sm font-medium border ${mode === "delete" ? "bg-red-50 border-red-500 text-red-700" : "bg-gray-50 text-gray-700"}`}
-            >
-              🗑️ Delete Element
-            </button>
-          </div>
-
-          <hr className="my-2" />
-
-          <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wider">Next Node Defaults</h2>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Node Name</label>
-            <input
-              type="text"
-              className="w-full border px-3 py-1.5 rounded text-sm"
-              value={nodeNameInput}
-              onChange={(e) => setNodeNameInput(e.target.value)}
-              placeholder="e.g. ICU, Entrance"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Node Type</label>
-            <select
-              className="w-full border px-3 py-1.5 rounded text-sm"
-              value={nodeTypeInput}
-              onChange={(e) => setNodeTypeInput(e.target.value)}
-            >
-              <option value="general">General</option>
-              <option value="room">Room / POI</option>
-              <option value="elevator">Elevator</option>
-              <option value="stairs">Stairs</option>
-              <option value="entrance">Entrance</option>
-            </select>
-          </div>
-
-          <hr className="my-2" />
-
-          <div className="text-xs text-gray-500 space-y-1">
-            <p><strong>Total Nodes:</strong> {pois.length}</p>
-            <p><strong>Total Edges:</strong> {edges.length}</p>
-          </div>
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {visiblePOIs.length === 0 ? (
+            <p className="text-sm text-slate-500 italic">No POIs added on this floor yet.</p>
+          ) : (
+            visiblePOIs.map((poi) => (
+              <div
+                key={poi.id}
+                onClick={() => setSelectedPOI(poi.id)}
+                className={`p-3 rounded-lg border cursor-pointer flex items-center justify-between ${
+                  selectedPOI === poi.id
+                    ? "bg-slate-800 border-blue-500"
+                    : "bg-slate-800/40 border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-200">{poi.name}</p>
+                  <p className="text-xs text-slate-400">
+                    X: {poi.x} | Y: {poi.y}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deletePOI(poi.id);
+                  }}
+                  className="text-slate-500 hover:text-rose-400 p-1"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
-  );
-}
-
-export default function MapEditorPage() {
-  return (
-    <Suspense fallback={<div className="p-8 text-center text-gray-600">Loading map editor...</div>}>
-      <MapEditorContent />
-    </Suspense>
   );
 }

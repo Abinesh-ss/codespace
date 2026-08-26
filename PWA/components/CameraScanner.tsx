@@ -7,7 +7,76 @@ interface ScannerProps {
 
 export const CameraScanner = ({ onScanSuccess }: ScannerProps) => {
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const onScanRef = useRef(onScanSuccess);import { useEffect, useRef } from 'react';
+
+interface ScannerProps {
+  onScanSuccess: (decodedText: string) => void;
+}
+
+export const CameraScanner = ({ onScanSuccess }: ScannerProps) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const onScanRef = useRef(onScanSuccess);
+
+  useEffect(() => {
+    onScanRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let animationFrameId: number;
+
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+
+          // Check browser support for BarcodeDetector
+          if ('BarcodeDetector' in window) {
+            const barcodeDetector = new (window as any).BarcodeDetector({
+              formats: ['qr_code']
+            });
+
+            const detectCode = async () => {
+              if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+                try {
+                  const barcodes = await barcodeDetector.detect(videoRef.current);
+                  if (barcodes.length > 0) {
+                    onScanRef.current(barcodes[0].rawValue);
+                  }
+                } catch (e) {
+                  // Ignore frame detection errors
+                }
+              }
+              animationFrameId = requestAnimationFrame(detectCode);
+            };
+
+            detectCode();
+          }
+        }
+      } catch (err) {
+        console.error('Camera access error:', err);
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      if (stream) stream.getTracks().forEach(track => track.stop());
+    };
+  }, []);
+
+  return (
+    <div className="relative w-full h-full overflow-hidden">
+      <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+    </div>
+  );
+};
 
   // Keep callback reference updated without re-triggering scanner init
   useEffect(() => {

@@ -1,27 +1,51 @@
-"use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
+import { Html5Qrcode } from 'html5-qrcode'; // or your scanner library (e.g. @zxing/library)
 
-// 1. Define the props interface to accept onScan
-interface CameraScannerProps {
-  onScan: (scannedText: string) => void | Promise<void>;
+interface ScannerProps {
+  onScanSuccess: (decodedText: string) => void;
 }
 
-// 2. Destructure onScan from the component arguments
-export const CameraScanner: React.FC<CameraScannerProps> = ({ onScan }) => {
-  const ref = useRef<HTMLVideoElement>(null);
+export const CameraScanner = ({ onScanSuccess }: ScannerProps) => {
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const onScanRef = useRef(onScanSuccess);
+
+  // Keep callback reference updated without re-triggering scanner init
+  useEffect(() => {
+    onScanRef.current = onScanSuccess;
+  }, [onScanSuccess]);
 
   useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(stream => {
-        if (ref.current) {
-          ref.current.srcObject = stream;
-          ref.current.play();
-        }
-      });
-      
-    // Note: If you have QR scanning library logic (like html5-qrcode or jsqr) 
-    // that processes the video stream, it should call onScan(detectedText) here.
-  }, [onScan]);
+    const elementId = "qr-reader-container";
+    const html5QrcodeScanner = new Html5Qrcode(elementId);
+    scannerRef.current = html5QrcodeScanner;
 
-  return <video ref={ref} style={{ width: "100%" }} />;
+    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+    html5QrcodeScanner.start(
+      { facingMode: "environment" },
+      config,
+      (decodedText) => {
+        // Trigger parent callback when a valid QR is decoded
+        onScanRef.current(decodedText);
+      },
+      (errorMessage) => {
+        // Ignore frame read failures to avoid UI rerender flickering
+      }
+    ).catch((err) => {
+      console.error("Camera access error:", err);
+    });
+
+    return () => {
+      // Clean up stream safely on unmount
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().then(() => scannerRef.current?.clear());
+      }
+    };
+  }, []); // Empty dependency array ensures zero continuous re-mounting
+
+  return (
+    <div className="relative w-full h-full overflow-hidden">
+      <div id="qr-reader-container" className="w-full h-full object-cover" />
+    </div>
+  );
 };

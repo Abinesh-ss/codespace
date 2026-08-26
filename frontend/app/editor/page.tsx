@@ -1,278 +1,238 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 
-interface EditorNode {
+interface POI {
   id: string;
-  type: 'room' | 'corridor' | 'intersection' | 'elevator' | 'stairs';
-  x: number; // 0 to 100 percentage
-  y: number; // 0 to 100 percentage
-  name?: string;
+  name: string;
+  category: string;
+  floor: number;
+  xRatio: number; // Stored as percentage (0-1) for dynamic image resizing
+  yRatio: number;
 }
 
-interface EditorEdge {
-  id: string;
-  fromNodeId: string;
-  toNodeId: string;
-  distance: number;
-}
+export default function HospitalMapEditor() {
+  const searchParams = useSearchParams();
+  const mapId = searchParams.get("mapId") || "";
 
-export default function MapEditorPage() {
-  const [nodes, setNodes] = useState<EditorNode[]>([]);
-  const [edges, setEdges] = useState<EditorEdge[]>([]);
-  const [selectedNodeType, setSelectedNodeType] = useState<'room' | 'corridor' | 'intersection'>('corridor');
-  const [nodeName, setNodeName] = useState('');
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [floor, setFloor] = useState<number>(2);
+  const [pois, setPois] = useState<POI[]>([
+    { id: "1", name: "EN", category: "GENERAL", floor: 2, xRatio: 0.35, yRatio: 0.5 },
+    { id: "2", name: "Room 2", category: "GENERAL", floor: 2, xRatio: 0.54, yRatio: 0.53 },
+    { id: "3", name: "Room 3", category: "GENERAL", floor: 2, xRatio: 0.54, yRatio: 0.72 },
+  ]);
+  const [activePoiId, setActivePoiId] = useState<string | null>("1");
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // You can tie these to your selected hospital and floor states
-  const [hospitalId, setHospitalId] = useState('example-hospital-id');
-  const [floorId, setFloorId] = useState('new-uuid-placeholder'); 
-  const [isSaving, setIsSaving] = useState(false);
+  // Click handler to drop a new POI marker directly onto the image
+  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!imageContainerRef.current) return;
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    
+    // Calculate clicked position relative to actual displayed image dimensions
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
 
-  // 1. Plot a Point on the Map Grid Canvas
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = parseFloat((((e.clientX - rect.left) / rect.width) * 100).toFixed(2));
-    const y = parseFloat((((e.clientY - rect.top) / rect.height) * 100).toFixed(2));
+    const xRatio = clickX / rect.width;
+    const yRatio = clickY / rect.height;
 
-    const newNode: EditorNode = {
-      id: `node_${Date.now()}`,
-      type: selectedNodeType,
-      x,
-      y,
-      name: selectedNodeType === 'room' ? nodeName || `Room ${nodes.length + 1}` : undefined
+    const newPoi: POI = {
+      id: crypto.randomUUID(),
+      name: `Room ${pois.length + 1}`,
+      category: "GENERAL",
+      floor: floor,
+      xRatio: Math.max(0, Math.min(1, xRatio)),
+      yRatio: Math.max(0, Math.min(1, yRatio)),
     };
 
-    setNodes([...nodes, newNode]);
-    setNodeName('');
+    setPois((prev) => [...prev, newPoi]);
+    setActivePoiId(newPoi.id);
   };
 
-  // 2. Click two nodes sequentially to link them with a Corridor line
-  const connectNodes = (fromId: string, toId: string) => {
-    if (fromId === toId) return;
-    const fromNode = nodes.find(n => n.id === fromId);
-    const toNode = nodes.find(n => n.id === toId);
-    if (!fromNode || !toNode) return;
-
-    // Prevent duplicate edges
-    const exist = edges.find(e => 
-      (e.fromNodeId === fromId && e.toNodeId === toId) || 
-      (e.fromNodeId === toId && e.toNodeId === fromId)
+  const updatePoiName = (id: string, newName: string) => {
+    setPois((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, name: newName } : item))
     );
-    if (exist) return;
-
-    // Calculate straight-line path weight distance automatically 
-    const distance = parseFloat(Math.sqrt(Math.pow(fromNode.x - toNode.x, 2) + Math.pow(fromNode.y - toNode.y, 2)).toFixed(2));
-
-    const newEdge: EditorEdge = {
-      id: `edge_${Date.now()}`,
-      fromNodeId: fromId,
-      toNodeId: toId,
-      distance
-    };
-
-    setEdges([...edges, newEdge]);
   };
 
-  // 3. Clear selected nodes or reset canvas
-  const clearCanvas = () => {
-    if(confirm("Are you sure you want to clear your current drawing draft?")) {
-      setNodes([]);
-      setEdges([]);
-      setSelectedNodeId(null);
-    }
+  const deletePoi = (id: string) => {
+    setPois((prev) => prev.filter((item) => item.id !== id));
+    if (activePoiId === id) setActivePoiId(null);
   };
 
-  // 4. Save dynamic structural JSON map schema directly to the backend floor endpoint
-  const saveMapToDatabase = async () => {
-    if (nodes.length === 0) {
-      alert("Please place some path nodes on your layout map before saving.");
-      return;
-    }
-
+  const handleSaveChanges = async () => {
+    setIsSaving(true);
     try {
-      setIsSaving(true);
-
-      // Map dynamic destination elements to the pointsOfInterest layout expected by your schema
-      const pointsOfInterest = nodes
-        .filter(n => n.type === 'room')
-        .map(n => ({
-          nodeId: n.id,
-          name: n.name || 'Unnamed Room',
-          x: n.x,
-          y: n.y,
-          type: n.type
-        }));
-
-      // Combine into the dynamic JSON graph layout block
-      const completeGraphData = {
-        nodes,
-        edges,
-        pointsOfInterest
-      };
-
-      const backendBase = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-      
-      // Sends payload matching backend/src/app/api/hospital/floor/route.ts POST logic
-      const response = await fetch(`${backendBase}/api/hospital/floor`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          hospitalId: hospitalId,
-          mapId: floorId,
-          name: "Main Map Layout Blueprint",
-          level: 1,
-          graphData: completeGraphData 
-        })
+      const response = await fetch("http://localhost:3000/api/hospital/map/save-pois", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mapId, floor, pois }),
       });
-
-      const data = await response.json();
       if (response.ok) {
-        alert('Indoor navigation blueprint successfully compiled and synced to database records!');
+        alert("Map changes saved successfully!");
       } else {
-        alert(`Error saving floor plan layout: ${data.error}`);
+        alert("Failed to save changes.");
       }
     } catch (err) {
-      console.error('Failed uploading network structure schema:', err);
-      alert('Network error communicating with map coordination cluster.');
+      console.error(err);
+      alert("Network error while saving.");
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="p-6 bg-slate-950 min-h-screen text-white flex flex-col gap-4 font-sans">
-      {/* Top Banner Management controls */}
-      <div className="flex justify-between items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold">Vector Navigation Map Editor</h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Click on the canvas grid below to drop coordinates. Tap two points one after another to form direct walkable connections.
-          </p>
+    <div className="flex flex-col h-screen bg-slate-100 font-sans text-slate-800">
+      {/* Top Header Bar */}
+      <header className="flex items-center justify-between px-6 py-3 bg-white border-b">
+        <div className="flex items-center space-x-2">
+          <span className="text-xl font-bold text-blue-600">Vazhikatti</span>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={clearCanvas}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg border border-slate-700 transition-all"
-          >
-            Clear Grid
-          </button>
-          <button
-            onClick={saveMapToDatabase}
-            disabled={isSaving}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-xs font-bold rounded-lg transition-all shadow-md shadow-blue-900/20"
-          >
-            {isSaving ? 'Compiling Layout...' : 'Save Vector Blueprint'}
-          </button>
-        </div>
-      </div>
+        <nav className="flex items-center space-x-6 text-sm font-semibold">
+          <a href="#" className="hover:text-blue-600">Dashboard</a>
+          <a href="#" className="hover:text-blue-600">Upload</a>
+          <a href="#" className="text-blue-600">Editor</a>
+          <a href="#" className="hover:text-blue-600">Navigate</a>
+          <a href="#" className="hover:text-blue-600">QR</a>
+        </nav>
+      </header>
 
-      {/* Grid Configuration Options */}
-      <div className="flex gap-4 items-center bg-slate-900 p-3 rounded-xl border border-slate-800 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-slate-300">Tool Mode:</span>
-          <select
-            value={selectedNodeType}
-            onChange={(e: any) => setSelectedNodeType(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded p-1.5 outline-none text-blue-400 font-medium"
-          >
-            <option value="corridor">Hallway Node (Corridor)</option>
-            <option value="intersection">Intersection Turn Corner</option>
-            <option value="room">Patient Room (Destination Destination)</option>
-          </select>
+      {/* Editor Sub-Header Toolbar */}
+      <div className="flex items-center justify-between px-8 py-4 bg-white border-b shadow-sm">
+        <div className="flex items-center space-x-3">
+          <h1 className="text-lg font-bold">HOSPITAL MAP EDITOR</h1>
+          <span className="text-gray-400">|</span>
+          <span className="text-gray-600 font-medium">Hospital Floor Plan</span>
         </div>
 
-        {selectedNodeType === 'room' && (
-          <div className="flex items-center gap-2 animate-fade-in">
-            <span className="font-semibold text-slate-300">Target Name:</span>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-bold text-gray-500 uppercase">FLOOR</span>
             <input
-              type="text"
-              placeholder="e.g., ICU, Room 104, Lab"
-              value={nodeName}
-              onChange={(e) => setNodeName(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded p-1.5 text-white outline-none w-52 focus:border-blue-500 transition-all"
+              type="number"
+              value={floor}
+              onChange={(e) => setFloor(Number(e.target.value))}
+              className="w-12 px-2 py-1 border rounded text-center font-bold"
             />
           </div>
-        )}
-      </div>
 
-      {/* Canvas Workspace View container (Plain background context) */}
-      <div className="flex-1 relative bg-slate-900 rounded-2xl border border-slate-800 h-[65vh] overflow-hidden shadow-inner">
-        <div 
-          onClick={handleCanvasClick}
-          className="absolute inset-0 cursor-crosshair"
-          style={{ 
-            backgroundSize: '24px 24px', 
-            backgroundImage: 'linear-gradient(to right, #1e293b 1px, transparent 1px), linear-gradient(to bottom, #1e293b 1px, transparent 1px)' 
-          }}
-        >
-          {/* SVG Connector Corridor overlay layer */}
-          <svg className="w-full h-full absolute inset-0 pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {edges.map((edge) => {
-              const fromNode = nodes.find(n => n.id === edge.fromNodeId);
-              const toNode = nodes.find(n => n.id === edge.toNodeId);
-              if (!fromNode || !toNode) return null;
-              return (
-                <line
-                  key={edge.id}
-                  x1={fromNode.x}
-                  y1={fromNode.y}
-                  x2={toNode.x}
-                  y2={toNode.y}
-                  stroke="#2563eb"
-                  strokeWidth="0.5"
-                  strokeDasharray="1,1"
-                  strokeLinecap="round"
-                />
-              );
-            })}
-          </svg>
+          <button className="px-4 py-2 bg-amber-100 text-amber-700 font-bold rounded-lg hover:bg-amber-200">
+            ✨ AI SCAN
+          </button>
 
-          {/* Individual Point Interactivity Handlers */}
-          {nodes.map((node) => (
-            <div
-              key={node.id}
-              onClick={(e) => {
-                e.stopPropagation(); // Stops adding a new point immediately on top of this one
-                if (selectedNodeId && selectedNodeId !== node.id) {
-                  connectNodes(selectedNodeId, node.id);
-                  setSelectedNodeId(null);
-                } else {
-                  setSelectedNodeId(node.id);
-                }
-              }}
-              className={`absolute w-3.5 h-3.5 -ml-1.75 -mt-1.75 rounded-full cursor-pointer transition-transform hover:scale-125 border shadow ${
-                selectedNodeId === node.id 
-                  ? 'bg-yellow-400 border-white ring-4 ring-yellow-400/30' 
-                  : node.type === 'room' 
-                    ? 'bg-emerald-500 border-slate-950' 
-                    : node.type === 'intersection'
-                      ? 'bg-purple-500 border-slate-950'
-                      : 'bg-blue-500 border-slate-950'
-              }`}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
-            >
-              {/* Point Title Labels tooltip style */}
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 hidden group-hover:block whitespace-nowrap bg-slate-950 text-white text-[10px] p-1 rounded border border-slate-700 pointer-events-none z-10">
-                {node.type.toUpperCase()}
-              </div>
+          <button
+            onClick={handleSaveChanges}
+            disabled={isSaving}
+            className="px-5 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700"
+          >
+            {isSaving ? "SAVING..." : "💾 SAVE CHANGES"}
+          </button>
 
-              {node.type === 'room' && (
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 whitespace-nowrap bg-slate-950/90 px-1.5 py-0.5 text-[10px] rounded text-emerald-400 font-semibold border border-emerald-500/30 shadow">
-                  {node.name}
-                </span>
-              )}
-            </div>
-          ))}
+          <button className="px-4 py-2 bg-black text-white font-bold rounded-lg hover:bg-gray-800">
+            QR GEN
+          </button>
         </div>
       </div>
-      <div className="text-[11px] text-slate-500 flex gap-4">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Corridor point</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500" /> Intersection corner</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Patient Room</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Currently Selected</span>
+
+      {/* Main Content Workspace */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Interactive Canvas Area */}
+        <div className="flex-1 p-6 relative overflow-auto flex items-center justify-center">
+          <div
+            ref={imageContainerRef}
+            onClick={handleImageClick}
+            className="relative cursor-crosshair border shadow-md bg-white rounded-lg overflow-hidden select-none"
+            style={{ width: "800px", height: "550px" }}
+          >
+            {/* Base Image Upload */}
+            <img
+              src="/sample-floorplan.png"
+              alt="Floor Plan"
+              className="w-full h-full object-contain pointer-events-none"
+            />
+
+            {/* Dynamic POI Markers Layer */}
+            {pois.map((poi) => {
+              const isActive = poi.id === activePoiId;
+              return (
+                <div
+                  key={poi.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActivePoiId(poi.id);
+                  }}
+                  className="absolute -translate-x-1/2 -translate-y-full cursor-pointer group"
+                  style={{
+                    left: `${poi.xRatio * 100}%`,
+                    top: `${poi.yRatio * 100}%`,
+                  }}
+                >
+                  <div className="flex flex-col items-center">
+                    {/* Location Pin Icon */}
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-transform ${
+                        isActive ? "bg-blue-600 scale-125 ring-4 ring-blue-300" : "bg-slate-700 hover:scale-110"
+                      }`}
+                    >
+                      📍
+                    </div>
+                    {/* Location Name Tag */}
+                    <span className="mt-1 px-2 py-0.5 bg-black text-white text-[10px] font-bold rounded shadow uppercase">
+                      {poi.name}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right Active Elements Sidebar */}
+        <div className="w-80 bg-white border-l p-4 flex flex-col space-y-4 overflow-y-auto">
+          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+            ACTIVE ELEMENTS
+          </h2>
+
+          <div className="space-y-3">
+            {pois.map((poi) => {
+              const isActive = poi.id === activePoiId;
+              return (
+                <div
+                  key={poi.id}
+                  onClick={() => setActivePoiId(poi.id)}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    isActive ? "border-blue-500 bg-blue-50/50 shadow-sm" : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <input
+                      type="text"
+                      value={poi.name}
+                      onChange={(e) => updatePoiName(poi.id, e.target.value)}
+                      className="font-bold text-slate-800 bg-transparent border-b border-transparent focus:border-blue-500 outline-none w-full mr-2"
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deletePoi(poi.id);
+                      }}
+                      className="text-gray-400 hover:text-red-500 text-sm"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+
+                  <div className="mt-2 text-[10px] text-gray-400 font-semibold space-y-0.5">
+                    <div>{poi.category}</div>
+                    <div>FLOOR: {poi.floor}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -20,16 +20,13 @@ const nextConfig = {
     },
   },
 
-  // --- ADDED CORS HEADERS CONFIGURATION BELOW ---
   async headers() {
     return [
       {
-        // This applies the CORS rules to all your API routes
+        // Applies CORS rules to all API routes
         source: "/api/:path*",
         headers: [
-          { key: "Access-Control-Allow-Credentials", value: "true" },
-          // Allows your specific local frontend to access this backend
-          { key: "Access-Control-Allow-Origin", value: "http://localhost:3001" }, 
+          { key: "Access-Control-Allow-Origin", value: "*" },
           { key: "Access-Control-Allow-Methods", value: "GET,DELETE,PATCH,POST,PUT,OPTIONS" },
           { 
             key: "Access-Control-Allow-Headers", 

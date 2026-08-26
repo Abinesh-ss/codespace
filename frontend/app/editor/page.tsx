@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 interface NodePOI {
   nodeId: string;
@@ -22,14 +23,18 @@ interface GraphData {
 }
 
 export default function MapEditorPage() {
+  const searchParams = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Editor configuration states
-  const [hospitalId, setHospitalId] = useState<string>("");
-  const [floorId, setFloorId] = useState<string>("new-uuid-placeholder");
-  const [floorName, setFloorName] = useState<string>("Floor 1");
+  // Read params passed via URL (e.g., /editor?hospitalId=xxx&mapId=yyy)
+  const hospitalId = searchParams.get("hospitalId") || "";
+  const mapId = searchParams.get("mapId") || "";
+
+  // Dynamic state populated from backend fetch
+  const [floorName, setFloorName] = useState<string>("");
   const [floorLevel, setFloorLevel] = useState<number>(1);
   const [bgImageUrl, setBgImageUrl] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
 
   // Graph state
   const [pois, setPois] = useState<NodePOI[]>([]);
@@ -43,10 +48,44 @@ export default function MapEditorPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
 
-  // Background image element reference
+  // Background image HTML element reference
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
 
-  // Load background image when URL changes
+  // 1. Automatically fetch saved floor details and graph data when page loads
+  useEffect(() => {
+    async function fetchFloorData() {
+      if (!hospitalId || !mapId) {
+        setMessage("Missing hospitalId or mapId URL parameters.");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/hospital/floor?hospitalId=${hospitalId}&mapId=${mapId}`);
+        if (!res.ok) throw new Error("Failed to load map data.");
+
+        const data = await res.json();
+        
+        // Auto-populate data fetched from backend
+        setFloorName(data.name || "Floor Map");
+        setFloorLevel(data.level || 1);
+        setBgImageUrl(data.imageUrl || data.bgImageUrl || "");
+        
+        if (data.graphData) {
+          setPois(data.graphData.pointsOfInterest || []);
+          setEdges(data.graphData.edges || []);
+        }
+      } catch (err: any) {
+        setMessage(`Error fetching data: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchFloorData();
+  }, [hospitalId, mapId]);
+
+  // 2. Load background image object when bgImageUrl updates
   useEffect(() => {
     if (!bgImageUrl) return;
     const img = new Image();
@@ -55,7 +94,7 @@ export default function MapEditorPage() {
     img.onload = () => setBgImage(img);
   }, [bgImageUrl]);
 
-  // Canvas Rerender Loop
+  // 3. Canvas Rerender Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -64,7 +103,7 @@ export default function MapEditorPage() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Render background map
+    // Draw uploaded background map
     if (bgImage) {
       ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
     } else {
@@ -97,7 +136,6 @@ export default function MapEditorPage() {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Render Label
       ctx.font = "12px sans-serif";
       ctx.fillStyle = "#1f2937";
       ctx.fillText(poi.name || poi.nodeId.substring(0, 4), poi.x + 12, poi.y + 4);
@@ -113,7 +151,6 @@ export default function MapEditorPage() {
     const x = Math.round(e.clientX - rect.left);
     const y = Math.round(e.clientY - rect.top);
 
-    // Check if click hit an existing node
     const clickedNode = pois.find(
       (p) => Math.hypot(p.x - x, p.y - y) <= 12
     );
@@ -154,9 +191,7 @@ export default function MapEditorPage() {
         setPois((prev) => prev.filter((p) => p.nodeId !== clickedNode.nodeId));
         setEdges((prev) =>
           prev.filter(
-            (e) =>
-              e.fromNodeId !== clickedNode.nodeId &&
-              e.toNodeId !== clickedNode.nodeId
+            (e) => e.fromNodeId !== clickedNode.nodeId && e.toNodeId !== clickedNode.nodeId
           )
         );
         if (selectedNodeId === clickedNode.nodeId) setSelectedNodeId(null);
@@ -164,13 +199,8 @@ export default function MapEditorPage() {
     }
   };
 
-  // Save Graph Data to Backend API
+  // Save modified nodes and edges back to backend API
   const handleSaveFloor = async () => {
-    if (!hospitalId) {
-      setMessage("Please enter a valid Hospital ID.");
-      return;
-    }
-
     setSaving(true);
     setMessage("");
 
@@ -185,17 +215,17 @@ export default function MapEditorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hospitalId,
-          mapId: floorId,
+          mapId,
           name: floorName,
           level: floorLevel,
+          imageUrl: bgImageUrl,
           graphData,
         }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        setMessage("Floor map and node topology saved successfully!");
-        if (data.id) setFloorId(data.id);
+        setMessage("Node graph saved successfully!");
       } else {
         setMessage(`Save failed: ${data.error || "Unknown error"}`);
       }
@@ -206,16 +236,23 @@ export default function MapEditorPage() {
     }
   };
 
+  if (loading) {
+    return <div className="p-8 text-center text-gray-600">Loading floor map data...</div>;
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto flex flex-col gap-6">
       <div className="flex justify-between items-center border-b pb-4">
-        <h1 className="text-2xl font-bold text-gray-800">Hospital Map & Node Editor</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">{floorName || "Floor Editor"}</h1>
+          <p className="text-sm text-gray-500">Level: {floorLevel} | Hospital ID: {hospitalId}</p>
+        </div>
         <button
           onClick={handleSaveFloor}
           disabled={saving}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium disabled:opacity-50"
         >
-          {saving ? "Saving..." : "Save Floor & Graph"}
+          {saving ? "Saving..." : "Save Graph Changes"}
         </button>
       </div>
 
@@ -225,49 +262,7 @@ export default function MapEditorPage() {
         </div>
       )}
 
-      {/* Configuration Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 border rounded-lg shadow-sm">
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Hospital ID</label>
-          <input
-            type="text"
-            className="w-full border px-3 py-1.5 rounded text-sm"
-            value={hospitalId}
-            onChange={(e) => setHospitalId(e.target.value)}
-            placeholder="Hospital UUID"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Floor Name</label>
-          <input
-            type="text"
-            className="w-full border px-3 py-1.5 rounded text-sm"
-            value={floorName}
-            onChange={(e) => setFloorName(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Floor Level</label>
-          <input
-            type="number"
-            className="w-full border px-3 py-1.5 rounded text-sm"
-            value={floorLevel}
-            onChange={(e) => setFloorLevel(Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Background Image URL</label>
-          <input
-            type="text"
-            className="w-full border px-3 py-1.5 rounded text-sm"
-            value={bgImageUrl}
-            onChange={(e) => setBgImageUrl(e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
-      </div>
-
-      {/* Editor Canvas & Sidebar */}
+      {/* Canvas & Editing Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 border rounded-lg overflow-hidden bg-white shadow-sm flex justify-center items-center p-2">
           <canvas

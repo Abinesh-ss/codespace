@@ -1,10 +1,54 @@
 {
+  "floorMapUrl": "/floor-plan.png",
   "anchors": [
     { "id": "QR_ENTRANCE", "floor": 0, "x": 10, "y": 20, "label": "Main Entrance" },
     { "id": "QR_ELEVATOR_A", "floor": 1, "x": 45, "y": 50, "label": "Floor 1 Elevators" },
     { "id": "QR_PHARMACY", "floor": 0, "x": 80, "y": 15, "label": "Pharmacy" }
   ],
-  "paths": [
-    { "from": "QR_ENTRANCE", "to": "QR_PHARMACY", "distance_meters": 35 }
+  "nodes": [
+    { "id": "node-entrance", "type": "entrance", "x": 10, "y": 20, "name": "Main Entrance" },
+    { "id": "node-reception", "type": "room", "x": 25, "y": 30, "name": "Reception Desk" },
+    { "id": "node-corridor-1", "type": "corridor", "x": 45, "y": 20, "name": "Main Hallway" },
+    { "id": "node-elevator-a", "type": "elevator", "x": 45, "y": 50, "name": "Floor 1 Elevators" },
+    { "id": "node-pharmacy", "type": "pharmacy", "x": 80, "y": 15, "name": "Pharmacy" },
+    { "id": "node-radiology", "type": "room", "x": 75, "y": 65, "name": "Radiology & X-Ray" },
+    { "id": "node-emergency", "type": "room", "x": 20, "y": 70, "name": "Emergency Room" }
+  ],
+  "edges": [
+    { "id": "e1", "fromNodeId": "node-entrance", "toNodeId": "node-reception", "distance": 15 },
+    { "id": "e2", "fromNodeId": "node-reception", "toNodeId": "node-corridor-1", "distance": 20 },
+    { "id": "e3", "fromNodeId": "node-corridor-1", "toNodeId": "node-pharmacy", "distance": 35 },
+    { "id": "e4", "fromNodeId": "node-corridor-1", "toNodeId": "node-elevator-a", "distance": 30 },
+    { "id": "e5", "fromNodeId": "node-elevator-a", "toNodeId": "node-radiology", "distance": 30 },
+    { "id": "e6", "fromNodeId": "node-reception", "toNodeId": "node-emergency", "distance": 40 }
+  ],
+  "pointsOfInterest": [
+    {
+      "id": "poi-entrance",
+      "type": "entrance",
+      "x": 10,
+      "y": 20,
+      "name": "Main Entrance",
+      "qrId": "QR_ENTRANCE",
+      "dbId": "db-entrance"
+    },
+    {
+      "id": "poi-elevator",
+      "type": "elevator",
+      "x": 45,
+      "y": 50,
+      "name": "Floor 1 Elevators",
+      "qrId": "QR_ELEVATOR_A",
+      "dbId": "db-elevator"
+    },
+    {
+      "id": "poi-pharmacy",
+      "type": "pharmacy",
+      "x": 80,
+      "y": 15,
+      "name": "Pharmacy",
+      "qrId": "QR_PHARMACY",
+      "dbId": "db-pharmacy"
+    }
   ]
 }

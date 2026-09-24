@@ -8,9 +8,10 @@ import LiveLocation from "@/components/LiveLocation";
 import Compass from "@/components/Compass";
 import { Search, MapPin, Navigation, QrCode, X, Globe } from "lucide-react";
 
-// Component aliases to guarantee TypeScript compatibility during build
+// Safe component aliases to guarantee TypeScript compatibility across all custom components during build
 const SafeNavigationSteps = NavigationSteps as React.ComponentType<any>;
 const SafeLiveLocation = LiveLocation as React.ComponentType<any>;
+const SafeQRAnchorScanner = QRAnchorScanner as React.ComponentType<any>;
 
 export default function Home() {
   // Navigation & Location States
@@ -116,7 +117,9 @@ export default function Home() {
 
   // Handle QR Scan Detection
   const handleQRScanned = (scannedData: { x: number; y: number; nodeName?: string }) => {
-    setUserLocation({ x: scannedData.x, y: scannedData.y });
+    if (scannedData?.x !== undefined && scannedData?.y !== undefined) {
+      setUserLocation({ x: scannedData.x, y: scannedData.y });
+    }
     setIsScannerOpen(false);
   };
 
@@ -275,8 +278,9 @@ export default function Home() {
 
       {/* QR Scanner Modal */}
       {isScannerOpen && (
-        <QRAnchorScanner
+        <SafeQRAnchorScanner
           onScanSuccess={handleQRScanned}
+          onScan={handleQRScanned}
           onClose={() => setIsScannerOpen(false)}
         />
       )}

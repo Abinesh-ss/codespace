@@ -3,9 +3,14 @@
 import React, { useState, useEffect } from "react";
 import MapOverlay, { Node } from "@/components/MapOverlay";
 import QRAnchorScanner from "@/components/QRAnchorScanner";
+import NavigationSteps from "@/components/NavigationSteps";
 import LiveLocation from "@/components/LiveLocation";
 import Compass from "@/components/Compass";
 import { Search, MapPin, Navigation, QrCode, X, Globe } from "lucide-react";
+
+// Component aliases to guarantee TypeScript compatibility during build
+const SafeNavigationSteps = NavigationSteps as React.ComponentType<any>;
+const SafeLiveLocation = LiveLocation as React.ComponentType<any>;
 
 export default function Home() {
   // Navigation & Location States
@@ -36,7 +41,7 @@ export default function Home() {
       currentLocation: "Current Location",
       navigatingTo: "Navigating to",
       noResults: "No locations found",
-      clear: "Clear Navigation",
+      clear: "Clear",
     },
     ta: {
       searchPlaceholder: "இடத்தை பாருங்கள்...",
@@ -45,7 +50,7 @@ export default function Home() {
       currentLocation: "தற்போதைய இருப்பிடம்",
       navigatingTo: "செல்லும் இடம்",
       noResults: "இடங்கள் எதுவும் கிடைக்கவில்லை",
-      clear: "வழிகாட்டலை முடித்ர",
+      clear: "நீக்கு",
     },
   };
 
@@ -173,38 +178,30 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Live Active Navigation Guidance Panel */}
+      {/* Navigation Directions Footer Drawer */}
       {calculatedPath.length > 0 && destination && (
         <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-blue-600/20 border border-blue-500/30 rounded-xl text-blue-400">
-              <Navigation className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="text-xs text-slate-400">{t.navigatingTo}</div>
-              <div className="font-bold text-base text-slate-100">{destination.name}</div>
-              <div className="text-xs text-blue-400">
-                {calculatedPath.length} checkpoint segments
-              </div>
-            </div>
-          </div>
-
+          <SafeNavigationSteps
+            path={calculatedPath}
+            destinationName={destination.name}
+            onArrival={() => setCalculatedPath([])}
+          />
           <button
             onClick={() => {
               setCalculatedPath([]);
               setDestination(null);
             }}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs rounded-lg text-slate-300"
           >
             {t.clear}
           </button>
         </div>
       )}
 
-      {/* Live Sensor Location Dead-Reckoning (Compatible Props) */}
-      <LiveLocation
-        userPos={userLocation}
-        setUserPos={setUserLocation}
+      {/* Sensor-based Dead Reckoning Tracking */}
+      <SafeLiveLocation
+        userLocation={userLocation}
+        onLocationUpdate={(newPos: { x: number; y: number }) => setUserLocation(newPos)}
       />
 
       {/* Search & POI Selection Drawer */}

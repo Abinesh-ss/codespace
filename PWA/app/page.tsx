@@ -5,7 +5,7 @@ import MapOverlay, { Node } from "@/components/MapOverlay";
 import QRAnchorScanner from "@/components/QRAnchorScanner";
 import LiveLocation from "@/components/LiveLocation";
 import Compass from "@/components/Compass";
-import { Search, MapPin, Navigation, QrCode, X, Globe, CheckCircle2 } from "lucide-react";
+import { Search, MapPin, Navigation, QrCode, X, Globe } from "lucide-react";
 
 export default function Home() {
   // Navigation & Location States
@@ -37,7 +37,6 @@ export default function Home() {
       navigatingTo: "Navigating to",
       noResults: "No locations found",
       clear: "Clear Navigation",
-      arrived: "You have arrived at your destination!",
     },
     ta: {
       searchPlaceholder: "இடத்தை பாருங்கள்...",
@@ -47,7 +46,6 @@ export default function Home() {
       navigatingTo: "செல்லும் இடம்",
       noResults: "இடங்கள் எதுவும் கிடைக்கவில்லை",
       clear: "வழிகாட்டலை முடித்ர",
-      arrived: "நீங்கள் இலக்கை அடைந்துவிட்டீர்கள்!",
     },
   };
 
@@ -203,10 +201,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* Sensor-based Dead Reckoning Tracking */}
+      {/* Live Sensor Location Dead-Reckoning (Compatible Props) */}
       <LiveLocation
-        userLocation={userLocation}
-        onLocationUpdate={(newPos) => setUserLocation(newPos)}
+        userPos={userLocation}
+        setUserPos={setUserLocation}
       />
 
       {/* Search & POI Selection Drawer */}

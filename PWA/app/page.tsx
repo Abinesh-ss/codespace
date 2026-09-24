@@ -1,21 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import MapOverlay from "@/components/MapOverlay";
+import MapOverlay, { Node } from "@/components/MapOverlay";
 import QRAnchorScanner from "@/components/QRAnchorScanner";
 import NavigationSteps from "@/components/NavigationSteps";
 import LiveLocation from "@/components/LiveLocation";
 import Compass from "@/components/Compass";
-import { Search, MapPin, Navigation, QRScanner, X, Globe } from "lucide-react";
-
-interface Node {
-  id: string;
-  name: string;
-  x: number;
-  y: number;
-  type?: string;
-  floor?: string;
-}
+import { Search, MapPin, Navigation, QrCode, X, Globe } from "lucide-react";
 
 export default function Home() {
   // Navigation & Location States
@@ -61,11 +52,10 @@ export default function Home() {
 
   const t = translations[language];
 
-  // 1. Fetch All POI Nodes & Current Floor Plan Image on Component Mount
+  // 1. Fetch All POI Nodes & Current Floor Plan Image on Mount
   useEffect(() => {
     async function initializeMapData() {
       try {
-        // Fetch All POI Nodes
         const nodesRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/nodes`);
         if (nodesRes.ok) {
           const nodesData = await nodesRes.json();
@@ -74,7 +64,6 @@ export default function Home() {
           }
         }
 
-        // Fetch Floor Plan Info (if dynamic API endpoint exists)
         const mapRes = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || ""}/api/map/current`);
         if (mapRes.ok) {
           const mapData = await mapRes.json();
@@ -91,7 +80,7 @@ export default function Home() {
     initializeMapData();
   }, []);
 
-  // 2. Fetch Calculated Path whenever Start Location or Destination Changes
+  // 2. Calculate Shortest Path when Start/Destination Change
   useEffect(() => {
     async function fetchPath() {
       if (!userLocation || !destination) return;
@@ -144,7 +133,6 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <Compass />
           
-          {/* Language Switcher */}
           <button
             onClick={() => setLanguage((prev) => (prev === "en" ? "ta" : "en"))}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition flex items-center gap-1 text-xs font-semibold"
@@ -166,14 +154,14 @@ export default function Home() {
           destination={destination}
         />
 
-        {/* Floating Controls (QR Scan & Destination Search Trigger) */}
+        {/* Floating Controls */}
         <div className="absolute bottom-24 right-4 z-10 flex flex-col gap-3">
           <button
             onClick={() => setIsScannerOpen(true)}
             className="p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-lg transition flex items-center justify-center"
             title={t.scanQR}
           >
-            <QRScanner className="w-6 h-6" />
+            <QrCode className="w-6 h-6" />
           </button>
 
           <button

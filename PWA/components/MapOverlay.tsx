@@ -1,237 +1,162 @@
 "use client";
 
-import { useMemo, useEffect, useState } from "react";
+import React from "react";
+
+interface Node {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  type?: string;
+  floor?: string;
+}
 
 interface MapOverlayProps {
-  poiList: any[];
-  userPos: { x: number; y: number } | null;
-  targetPos?: { x: number; y: number };
-  path: { x: number; y: number }[];
-  rotation: number;
-  floorMapUrl?: string; // Image path for custom indoor floor plan
+  mapImageUrl?: string;
+  imageDimensions?: { width: number; height: number };
+  nodes: Node[];
+  path: Array<{ x: number; y: number }>;
+  userLocation: { x: number; y: number } | null;
+  destination?: Node | null;
 }
 
 export default function MapOverlay({
-  poiList,
-  userPos,
-  targetPos,
-  path,
-  rotation,
-  floorMapUrl = "/floor-plan.png",
+  mapImageUrl = "/uploads/floorplan-default.png",
+  imageDimensions = { width: 1000, height: 1000 },
+  nodes = [],
+  path = [],
+  userLocation = null,
+  destination = null,
 }: MapOverlayProps) {
-  const [smoothUserPos, setSmoothUserPos] = useState({ x: 0, y: 0 });
-
-  // 1. SAFELY FILTER VALID POINTS
-  const safePoiList = useMemo(() => {
-    return (poiList || []).filter((p) => isFinite(p?.x) && isFinite(p?.y));
-  }, [poiList]);
-
-  const safePath = useMemo(() => {
-    return (path || []).filter((p) => isFinite(p?.x) && isFinite(p?.y));
-  }, [path]);
-
-  // 2. DYNAMIC VIEWBOX & MAP IMAGE BOUNDS CALCULATION
-  const mapBounds = useMemo(() => {
-    if (!safePoiList.length) {
-      return { minX: 0, minY: 0, width: 1000, height: 1000, viewBox: "0 0 1000 1000" };
-    }
-
-    const padding = 100;
-
-    const xs = safePoiList.map((p) => p.x);
-    const ys = safePoiList.map((p) => p.y);
-
-    const minX = Math.min(...xs);
-    const minY = Math.min(...ys);
-    const maxX = Math.max(...xs);
-    const maxY = Math.max(...ys);
-
-    if (
-      !isFinite(minX) ||
-      !isFinite(minY) ||
-      !isFinite(maxX) ||
-      !isFinite(maxY)
-    ) {
-      return { minX: 0, minY: 0, width: 1000, height: 1000, viewBox: "0 0 1000 1000" };
-    }
-
-    const mapMinX = minX - padding;
-    const mapMinY = minY - padding;
-    const width = maxX - minX + padding * 2;
-    const height = maxY - minY + padding * 2;
-
-    return {
-      minX: mapMinX,
-      minY: mapMinY,
-      width,
-      height,
-      viewBox: `${mapMinX} ${mapMinY} ${width} ${height}`,
-    };
-  }, [safePoiList]);
-
-  // 3. CLOSEST POINT INDEX (SAFE)
-  const currentIndex = useMemo(() => {
-    if (!userPos || safePath.length === 0) return 0;
-
-    let closestIndex = 0;
-    let minDist = Infinity;
-
-    safePath.forEach((p, i) => {
-      const dist = Math.hypot(p.x - userPos.x, p.y - userPos.y);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIndex = i;
-      }
-    });
-
-    return closestIndex;
-  }, [userPos, safePath]);
-
-  // 4. SMOOTH USER POSITION UPDATE
-  useEffect(() => {
-    if (userPos && isFinite(userPos.x) && isFinite(userPos.y)) {
-      setSmoothUserPos(userPos);
-    }
-  }, [userPos]);
-
-  const completedPath = safePath.slice(0, currentIndex + 1);
-  const remainingPath = safePath.slice(currentIndex);
+  const { width, height } = imageDimensions;
 
   return (
-    <div className="relative w-full h-full bg-[#020617] overflow-hidden flex items-center justify-center">
-      {/* GRID */}
-      <div
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: "radial-gradient(#3b82f6 0.5px, transparent 0.5px)",
-          backgroundSize: "40px 40px",
-        }}
-      />
-
-      {/* ROTATION LAYER */}
-      <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center"
-        style={{
-          transform: `rotate(${-rotation || 0}deg)`,
-          transition: "transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-        }}
+    <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-950">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-full object-contain select-none"
       >
-        <svg
-          viewBox={mapBounds.viewBox}
-          className="w-[90%] h-[90%]"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* FLOOR MAP IMAGE BACKGROUND LAYER */}
-          {floorMapUrl && (
-            <image
-              href={floorMapUrl}
-              x={mapBounds.minX}
-              y={mapBounds.minY}
-              width={mapBounds.width}
-              height={mapBounds.height}
-              preserveAspectRatio="none"
-              opacity="0.85"
-            />
-          )}
+        {/* LAYER 1: Uploaded Floor Plan Image Background */}
+        {mapImageUrl && (
+          <image
+            href={mapImageUrl}
+            x="0"
+            y="0"
+            width={width}
+            height={height}
+            preserveAspectRatio="xMidYMid meet"
+            opacity={0.85}
+          />
+        )}
 
-          {/* COMPLETED PATH */}
-          {completedPath.length > 1 && (
-            <polyline
-              points={completedPath.map((p) => `${p.x},${p.y}`).join(" ")}
+        {/* LAYER 2: Grid Guide Lines (Optional Background Overlay) */}
+        <defs>
+          <pattern
+            id="mapGrid"
+            width="50"
+            height="50"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 50 0 L 0 0 0 50"
               fill="none"
-              stroke="#475569"
-              strokeWidth="6"
-              strokeDasharray="12,12"
+              stroke="rgba(255, 255, 255, 0.05)"
+              strokeWidth="1"
             />
-          )}
+          </pattern>
+        </defs>
+        <rect width={width} height={height} fill="url(#mapGrid)" />
 
-          {/* REMAINING PATH */}
-          {remainingPath.length > 1 && (
-            <>
-              <polyline
-                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="30"
-                opacity="0.15"
-                strokeLinecap="round"
-              />
-              <polyline
-                points={remainingPath.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
+        {/* LAYER 3: Calculated Navigation Path Polyline */}
+        {path.length > 1 && (
+          <>
+            {/* Path Glow Effect */}
+            <polyline
+              points={path.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#3B82F6"
+              strokeWidth="10"
+              strokeOpacity="0.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Main Navigation Dash Path */}
+            <polyline
+              points={path.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="#60A5FA"
+              strokeWidth="5"
+              strokeDasharray="8 6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </>
+        )}
 
-          {/* POIs */}
-          {safePoiList.map((poi) => (
-            <g key={poi.id}>
+        {/* LAYER 4: All POI Nodes & Labels */}
+        {nodes.map((node) => {
+          const isSelectedTarget = destination?.id === node.id;
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${node.x}, ${node.y})`}
+              className="cursor-pointer transition-transform duration-200"
+            >
+              {/* POI Node Pin */}
               <circle
-                cx={poi.x}
-                cy={poi.y}
-                r="8"
-                fill="#1e293b"
-                stroke="#3b82f6"
+                r={isSelectedTarget ? "10" : "6"}
+                fill={isSelectedTarget ? "#EF4444" : "#3B82F6"}
+                stroke="#FFFFFF"
                 strokeWidth="2"
               />
 
+              {/* Selected Destination Pin Pulse Animation */}
+              {isSelectedTarget && (
+                <circle
+                  r="18"
+                  fill="#EF4444"
+                  opacity="0.3"
+                  className="animate-ping"
+                />
+              )}
+
+              {/* Label Text */}
               <text
-                x={poi.x}
-                y={poi.y + 25}
-                fontSize="16"
-                fill="#ffffff"
+                y="-14"
                 textAnchor="middle"
-                className="font-bold pointer-events-none drop-shadow-md"
-                style={{
-                  transform: `rotate(${rotation || 0}deg)`,
-                  transformOrigin: `${poi.x}px ${poi.y}px`,
-                  transition: "transform 0.4s",
-                }}
+                fill="#F8FAFC"
+                fontSize="12"
+                fontWeight="600"
+                className="drop-shadow-md pointer-events-none"
               >
-                {poi.name}
+                {node.name}
               </text>
             </g>
-          ))}
+          );
+        })}
 
-          {/* USER LOCATION INDICATOR */}
-          {userPos && (
-            <g transform={`translate(${smoothUserPos.x || 0}, ${smoothUserPos.y || 0})`}>
-              <circle r="40" fill="#3b82f6" className="opacity-20 animate-ping" />
-              <circle r="15" fill="#3b82f6" stroke="white" strokeWidth="4" />
-              <path d="M-10 -12 L0 -25 L10 -12 Z" fill="white" />
-            </g>
-          )}
-
-          {/* DESTINATION PIN */}
-          {targetPos && (
-            <g transform={`translate(${targetPos.x || 0}, ${targetPos.y || 0})`}>
-              <path
-                d="M0 0 L-15 -40 A15 15 0 1 1 15 -40 Z"
-                fill="#ef4444"
-                stroke="white"
-                strokeWidth="3"
-              />
-            </g>
-          )}
-        </svg>
-      </div>
-
-      {/* INFO DISPLAY OVERLAY */}
-      <div className="absolute bottom-4 left-4 flex gap-2 z-50">
-        <div className="px-3 py-1 bg-blue-500/20 border border-blue-500/30 rounded-lg text-[10px] text-blue-400 font-bold backdrop-blur-md">
-          FLOOR {safePoiList[0]?.floorId?.slice(-4)?.toUpperCase() || "0"}
-        </div>
-
-        {safePath.length > 0 && (
-          <div className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[10px] text-emerald-400 font-bold backdrop-blur-md uppercase">
-            Navigation Active
-          </div>
+        {/* LAYER 5: Live User Position Pulsing Marker */}
+        {userLocation && (
+          <g transform={`translate(${userLocation.x}, ${userLocation.y})`}>
+            {/* External Ping Indicator */}
+            <circle
+              r="18"
+              fill="#22C55E"
+              opacity="0.3"
+              className="animate-ping"
+            />
+            {/* Solid Center Marker */}
+            <circle
+              r="9"
+              fill="#22C55E"
+              stroke="#FFFFFF"
+              strokeWidth="2.5"
+            />
+            {/* Center Core */}
+            <circle r="3" fill="#FFFFFF" />
+          </g>
         )}
-      </div>
+      </svg>
     </div>
   );
 }

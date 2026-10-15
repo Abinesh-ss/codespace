@@ -9,19 +9,22 @@ datasource db {
 }
 
 model User {
-  id               String      @id @default(uuid())
-  email            String      @unique
+  id               String     @id @default(uuid())
+  email            String     @unique
   passwordHash     String
   name             String?
-  planStatus       PlanStatus  @default(FREE)
-  creditsRemaining Int         @default(10)
+  planStatus       PlanStatus @default(FREE)
+  creditsRemaining Int        @default(10)
 
-  hospitals    Hospital[]
-  subscription Subscription?
+  // Legacy relationships retained for compatibility with existing APIs.
+  hospitals        Hospital[]
+  subscription     Subscription?
+  analyticsEvents  AnalyticsEvent[]
+  stripeCustomerId String?
 
-  analyticsEvents AnalyticsEvent[]
-
-  stripeCustomerId String? 
+  // Universal organization relationships.
+  organizationsCreated    Organization[]       @relation("OrganizationCreator")
+  organizationMemberships OrganizationMember[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -41,6 +44,106 @@ model Subscription {
   updatedAt DateTime @updatedAt
 }
 
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  venueType VenueType @default(OTHER)
+  address   String?
+  country   String?
+  state     String?
+
+  // Organization-level billing fields for the future universal billing flow.
+  // Existing Hospital billing fields remain during migration.
+  region             Region?
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  trialEndsAt        DateTime?
+  paymentProvider    PaymentProvider?
+
+  createdByUserId String
+  createdByUser   User   @relation(
+    "OrganizationCreator",
+    fields: [createdByUserId],
+    references: [id],
+    onDelete: Restrict
+  )
+
+  members         OrganizationMember[]
+  sites           Site[]
+  analyticsEvents AnalyticsEvent[]
+  legacyHospital  Hospital?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdByUserId])
+  @@index([venueType])
+  @@index([subscriptionStatus])
+}
+
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole @default(VIEWER)
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Cascade
+  )
+  user User @relation(
+    fields: [userId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId, role])
+}
+
+model Site {
+  id             String  @id @default(cuid())
+  name           String
+  address        String?
+  organizationId String
+
+  organization Organization @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: Cascade
+  )
+  buildings Building[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+model Building {
+  id     String @id @default(cuid())
+  name   String
+  siteId String
+
+  site Site @relation(
+    fields: [siteId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  floors Floor[]
+  maps   Map[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+}
+
 model Hospital {
   id                 String             @id @default(cuid())
   name               String
@@ -50,19 +153,26 @@ model Hospital {
   region             Region
   subscriptionStatus SubscriptionStatus
 
-  trialEndsAt        DateTime?
-  paymentProvider    PaymentProvider?
+  trialEndsAt     DateTime?
+  paymentProvider PaymentProvider?
 
   createdByUser String
   user          User   @relation(fields: [createdByUser], references: [id])
 
+  // Optional link to the universal organization during staged migration.
+  organizationId String?       @unique
+  organization   Organization? @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: SetNull
+  )
+
   analyticsEvents AnalyticsEvent[]
+  floors          Floor[]
+  maps            Map[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  floors Floor[]
-  maps   Map[]      // Added relation to Map
 }
 
 model AnalyticsEvent {
@@ -71,27 +181,49 @@ model AnalyticsEvent {
   metadata  Json?
   createdAt DateTime @default(now())
 
-  userId     String?
-  user       User?     @relation(fields: [userId], references: [id])
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   hospitalId String?
-  hospital   Hospital? @relation(fields: [hospitalId], references: [id])
+  hospital   Hospital? @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
+
+  // Optional universal organization scope for new analytics events.
+  organizationId String?
+  organization   Organization? @relation(
+    fields: [organizationId],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@index([userId])
   @@index([hospitalId])
+  @@index([organizationId])
+  @@index([eventType, createdAt])
 }
 
 model Floor {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   name       String
-  hospital   Hospital  @relation(fields: [hospitalId], references: [id])
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
   hospitalId String
   image      String?
   level      Int?
   graphData  Json
-  pois       Poi[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+
+  // Optional hierarchy link; populate it during data migration.
+  buildingId String?
+  building   Building? @relation(
+    fields: [buildingId],
+    references: [id],
+    onDelete: SetNull
+  )
+
+  pois      Poi[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hospitalId])
+  @@index([buildingId])
 }
 
 model Map {
@@ -101,39 +233,55 @@ model Map {
   hospital  Hospital @relation(fields: [hospitalId], references: [id])
   hospitalId String
 
+  // Optional hierarchy link; populate it during data migration.
+  buildingId String?
+  building   Building? @relation(
+    fields: [buildingId],
+    references: [id],
+    onDelete: SetNull
+  )
+
   pois   Poi[]
   routes Route[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([hospitalId])
+  @@index([buildingId])
 }
 
 model Poi {
-  id        String   @id @default(cuid())
-  name      String
-  qrId      String   @unique 
-  type      String
-  x         Float
-  y         Float
-  map       Map      @relation(fields: [mapId], references: [id])
-  mapId     String
-  nodeId    String   @unique
-  floor     Floor    @relation(fields: [floorId], references: [id])
-  floorId   String
+  id     String @id @default(cuid())
+  name   String
+  qrId   String @unique
+  type   String
+  x      Float
+  y      Float
+  map    Map    @relation(fields: [mapId], references: [id])
+  mapId  String
+  nodeId String @unique
+  floor  Floor  @relation(fields: [floorId], references: [id])
+  floorId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([floorId])
+  @@index([mapId])
 }
 
 model Route {
-  id       String   @id @default(cuid())
+  id       String @id @default(cuid())
   fromId   String
   toId     String
   distance Float
-  map      Map      @relation(fields: [mapId], references: [id])
+  map      Map    @relation(fields: [mapId], references: [id])
   mapId    String
+
+  @@index([mapId])
+  @@index([fromId])
+  @@index([toId])
 }
 
 enum Region {
@@ -160,3 +308,21 @@ enum PaymentProvider {
   STRIPE
 }
 
+enum VenueType {
+  HOSPITAL
+  UNIVERSITY
+  MALL
+  AIRPORT
+  OFFICE
+  HOTEL
+  GOVERNMENT_BUILDING
+  MUSEUM
+  OTHER
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
